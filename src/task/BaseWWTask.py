@@ -372,17 +372,16 @@ class BaseWWTask(BaseTask):
         return 0
 
     def in_realm(self):
-        return not bool(getattr(self, 'treat_as_not_in_realm', False)) and self.find_one('illusive_realm_exit',
-                                                                                         threshold=0.7,
-                                                                                         frame_processor=convert_bw) and self.in_team() and not self.find_one(
-            'world_earth_icon', threshold=0.55,
-            frame_processor=convert_bw)
+        # in_team() returns a tuple. A failed check is (False, ...), which is still truthy.
+        return (not bool(getattr(self, 'treat_as_not_in_realm', False))
+                and self.find_one('illusive_realm_exit', threshold=0.7, frame_processor=convert_bw)
+                and self.in_team()[0]
+                and not self.find_one('world_earth_icon', threshold=0.55, frame_processor=convert_bw))
 
     def in_world(self):
-        return self.find_one('world_earth_icon', threshold=0.55,
-                             frame_processor=convert_bw) and self.in_team() and not self.find_one('illusive_realm_exit',
-                                                                                                  threshold=0.7,
-                                                                                                  frame_processor=convert_bw)
+        return (self.find_one('world_earth_icon', threshold=0.55, frame_processor=convert_bw)
+                and self.in_team()[0]
+                and not self.find_one('illusive_realm_exit', threshold=0.7, frame_processor=convert_bw))
 
     def in_illusive_realm(self):
         return self.find_one('new_realm_4') and self.in_realm() and self.find_one('illusive_realm_menu', threshold=0.6)
@@ -796,6 +795,21 @@ class BaseWWTask(BaseTask):
     def in_team_and_world(self):
         return self.in_team()[
             0]  # and self.find_one(f'gray_book_button', threshold=0.7, canny_lower=50, canny_higher=150)
+
+    def make_sure_in_world(self):
+        """Leave a challenge domain before guidebook actions, or reach the main world."""
+        if self.in_realm():
+            self.send_key('esc', after_sleep=1)
+            self.wait_click_feature(
+                'gray_confirm_exit_button', relative_x=-1, raise_if_not_found=False,
+                time_out=3, click_after_delay=0.5, threshold=0.7, after_sleep=1)
+            # in_team() stays true inside a domain, so waiting on that alone returns immediately.
+            self.wait_until(
+                lambda: self.in_team()[0] and not self.in_realm(),
+                time_out=getattr(self, 'teleport_timeout', 120),
+            )
+        else:
+            self.ensure_main()
 
     def get_angle_between(self, my_angle, angle):
         if my_angle > angle:

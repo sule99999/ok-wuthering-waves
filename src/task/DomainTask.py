@@ -40,15 +40,6 @@ class DomainTask(WWOneTimeTask, BaseCombatTask):
         self.revive_at_tower_and_heal()
         return True
 
-    def make_sure_in_world(self):
-        if self.in_realm():
-            self.send_key('esc', after_sleep=1)
-            self.wait_click_feature('gray_confirm_exit_button', relative_x=-1, raise_if_not_found=False,
-                                    time_out=3, click_after_delay=0.5, threshold=0.7, after_sleep=1)
-            self.wait_in_team_and_world(time_out=self.teleport_timeout)
-        else:
-            self.ensure_main()
-
     def open_F2_book_and_get_stamina(self):
         self.openF2Book('gray_book_boss')
         return self.get_stamina()

@@ -83,7 +83,9 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
 
         WWOneTimeTask.run(self)
         self.logged_in = False
-        self.ensure_main(time_out=180)
+        # A run can resume inside a Forgery/Tacet/Simulation domain. F2 does not
+        # open the guidebook there, so leave before reading daily progress.
+        self.make_sure_in_world()
 
         additional_tasks = self.config.get(ADDITIONAL_TASKS) or []
         condition1 = AUTO_FARM_NIGHTMARE_NEST in additional_tasks
