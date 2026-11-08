@@ -83,9 +83,17 @@ The repository packages only from `.github/workflows/build.yml`, on a push of a 
 
 A stable tag such as `v1.2.3` also requests SignPath signing. The workflow uses ok-oldking's organization, project slug, and `SIGNPATH_API_TOKEN`. This fork does not have those secrets, so it cannot sign for upstream. A prerelease tag skips signing and continues packaging.
 
-打包脚本会把当前检出的源码覆盖进 `data/apps/MC_L4/working`，避免安装包去跑上游 `ok-ww-update` 仓库里的旧 `config.py`。两个 profile 的 `git_url` 都是 `https://github.com/sule99999/ok-wuthering-waves.git`。PyAppify 之后的应用内更新只检出 semver tag；在包含这些修改的 tag 出现之前，更新不会把本 PR 再拉下来。不要把 `pyappify.yml` 指回 `ok-oldking/ok-ww-update` 或 `ok-ww-update2`。
+打包脚本会把当前检出的源码覆盖进 `data/apps/MC_L4/working`，包括 `inline_ok_requirements` 写进去的 `ok/` 和 `pyappify/`。China profile 仍使用原来的 `pip_args: "--no-deps"`，Global 沿用第一组 profile 的安装参数。两个 profile 的 `git_url` 都是 `https://github.com/sule99999/ok-wuthering-waves.git`，不再拉取 `ok-oldking/ok-ww-update` 或 `ok-ww-update2`。
 
-The packaging script copies the checked-out source into `data/apps/MC_L4/working`, so the installer does not run the old `config.py` from the upstream `ok-ww-update` repositories. Both profile `git_url` values are `https://github.com/sule99999/ok-wuthering-waves.git`. Later in-app updates check out semver tags only; until a tag contains these changes, an update will not fetch this pull request again. Do not point `pyappify.yml` back at `ok-oldking/ok-ww-update` or `ok-ww-update2`.
+The packaging script copies the checked-out source into `data/apps/MC_L4/working`, including the `ok/` and `pyappify/` directories written by `inline_ok_requirements`. The China profile still has the original `pip_args: "--no-deps"`, and Global inherits that profile's install arguments. Both `git_url` values are `https://github.com/sule99999/ok-wuthering-waves.git`. They do not fetch `ok-oldking/ok-ww-update` or `ok-ww-update2`.
+
+`.github/workflows/build.yml` 里，同步到 ok-oldking 更新仓库的 job 只在 `github.repository == 'ok-oldking/ok-wuthering-waves'` 时运行。这个 fork 没有 `CNB_TOKEN` / `OK_GH`，所以不会推上游；打包 job 在同步被跳过时仍会继续。发布说明里的上游 changelog 只有同步成功时才有内容。MirrorChyan 上传文件名已改为 `MC_L4-win32-China-setup-*.exe`，但本 PR 没有执行上传，也没有 MirrorChyan token。
+
+In `.github/workflows/build.yml`, the job that pushes to ok-oldking update repositories runs only when `github.repository == 'ok-oldking/ok-wuthering-waves'`. This fork does not have `CNB_TOKEN` or `OK_GH`, so it does not push upstream, and the package job still continues when that sync is skipped. The upstream changelog in the release notes is present only after a successful sync. The MirrorChyan filename is now `MC_L4-win32-China-setup-*.exe`. This pull request did not run that upload and does not add a MirrorChyan token.
+
+副本出口是否在所有支持的副本里都显示 `illusive_realm_exit`，以及按 Esc 后该图标是否会先消失而队伍名仍在，没有在游戏里验证。若图标先消失，代码会把当前画面当成已经离开副本。这不是已确认的行为。
+
+Whether every supported domain shows `illusive_realm_exit`, and whether that icon disappears after Esc while the team names remain, was not verified in the game. If the icon disappears first, the code treats the screen as already outside the domain. That outcome is not confirmed.
 
 本地或 workflow 成功打包后，`pyappify_dist` 里会有：
 

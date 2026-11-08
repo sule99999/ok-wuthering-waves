@@ -26,6 +26,8 @@ jobs:
   validate:
     name: 1 · Validate
     runs-on: windows-latest
+    outputs:
+      is_release: ${{ steps.release_version.outputs.is_release }}
 
     steps:
       - name: Configure runner
@@ -99,9 +101,21 @@ jobs:
             }
           }
 
+      - name: Check release version
+        id: release_version
+        if: env.BUILD_EXE == 'true'
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $isRelease = $env:RELEASE_TAG -match '^v?\d+\.\d+\.\d+$'
+          "is_release=$($isRelease.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          Write-Host "Release version: $isRelease"
+
   synchronize:
     name: 2 · Synchronize repositories
     needs: validate
+    if: github.repository == 'ok-oldking/ok-wuthering-waves'
     runs-on: windows-latest
     outputs:
       is_release: ${{ steps.release_version.outputs.is_release }}
@@ -169,10 +183,13 @@ jobs:
 
   package:
     name: 3 · Build and optionally sign
-    needs: synchronize
+    needs: [validate, synchronize]
+    if: >-
+      always() && needs.validate.result == 'success' &&
+      (needs.synchronize.result == 'success' || needs.synchronize.result == 'skipped')
     runs-on: windows-latest
     env:
-      SIGN_BUILD: ${{ needs.synchronize.outputs.is_release }}
+      SIGN_BUILD: ${{ needs.validate.outputs.is_release }}
 
     steps:
       - name: Configure runner
@@ -387,7 +404,10 @@ jobs:
 
   publish:
     name: 4 · Publish
-    needs: [ synchronize, package ]
+    needs: [ validate, synchronize, package ]
+    if: >-
+      always() && needs.validate.result == 'success' && needs.package.result == 'success' &&
+      (needs.synchronize.result == 'success' || needs.synchronize.result == 'skipped')
     runs-on: ubuntu-latest
 
     steps:
@@ -413,7 +433,7 @@ jobs:
             ### Install from source
               See the [source installation guide](https://github.com/ok-oldking/ok-wuthering-waves/blob/master/docs/development/contributing.md).
           draft: false
-          prerelease: ${{ needs.synchronize.outputs.is_release != 'true' }}
+          prerelease: ${{ needs.validate.outputs.is_release != 'true' }}
           files: pyappify_dist/*
 
       - name: Trigger distribution workflows

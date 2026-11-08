@@ -66,6 +66,15 @@ class AppIdentityTest(unittest.TestCase):
         self.assertNotIn("ok-ww-update2", pyappify_source)
         self.assertNotIn("update_pyappify", config_source)
         self.assertNotIn("ok-ww-win32.zip", config_source)
+        self.assertIn('pip_args: "--no-deps"', pyappify_source)
+        mirror = (ROOT / ".github" / "workflows" / "mirrorchyan_uploading.yml").read_text(encoding="utf-8")
+        self.assertIn('filename: "MC_L4-win32-China-setup-*.exe"', mirror)
+        self.assertNotIn("ok-ww-win32-China-setup-", mirror)
+        self.assertIn("owner: ${{ github.repository_owner }}", mirror)
+        self.assertIn("needs.synchronize.outputs.is_release == 'true'", workflow)
+        self.assertIn("github.repository == 'ok-oldking/ok-wuthering-waves'", workflow)
+        self.assertIn("needs.synchronize.result == 'skipped'", workflow)
+        self.assertIn("SIGN_BUILD: ${{ needs.validate.outputs.is_release }}", workflow)
         self.assertIn("uses: ./.github/actions/package-launcher", workflow)
         self.assertNotIn("uses: ok-oldking/pyappify-action@master", workflow)
 
@@ -214,3 +223,60 @@ class AppIdentityTest(unittest.TestCase):
             self.assertEqual("fork\n", (packaged / "src" / "task.py").read_text(encoding="utf-8"))
             self.assertIn("MC_L4", (packaged / "config.py").read_text(encoding="utf-8"))
             self.assertNotIn("ok-ww-update", (packaged / "pyappify.yml").read_text(encoding="utf-8"))
+
+            inlined = root / "inlined"
+            inlined_src = inlined / "src"
+            inlined_src.mkdir(parents=True)
+            (inlined_src / "task.py").write_text("fork\n", encoding="utf-8")
+            (inlined / "config.py").write_text("'gui_title': 'MC_L4'\n", encoding="utf-8")
+            (inlined / "pyappify.yml").write_text(
+                "git_url: https://github.com/sule99999/ok-wuthering-waves.git\n",
+                encoding="utf-8",
+            )
+            (inlined / "requirements.txt").write_text("numpy==2.5.2\n", encoding="utf-8")
+            (inlined / "ok").mkdir()
+            (inlined / "ok" / "__init__.py").write_text("ok = True\n", encoding="utf-8")
+            (inlined / "pyappify").mkdir()
+            (inlined / "pyappify" / "__init__.py").write_text("pyappify = True\n", encoding="utf-8")
+            packaged_inlined = root / "inlined-dist" / "data" / "apps" / "MC_L4" / "working"
+            packaged_inlined.mkdir(parents=True)
+            (packaged_inlined / "requirements.txt").write_text("ok-script==3.0.4\n", encoding="utf-8")
+            subprocess.run(
+                [
+                    node,
+                    str(probe),
+                    str(ROOT / ".github" / "scripts" / "overlay_packaged_source.js"),
+                    str(root / "inlined-dist"),
+                    str(inlined),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(
+                "ok = True\n",
+                (packaged_inlined / "ok" / "__init__.py").read_text(encoding="utf-8"),
+            )
+            self.assertTrue((packaged_inlined / "pyappify" / "__init__.py").is_file())
+            self.assertNotIn("ok-script", (packaged_inlined / "requirements.txt").read_text(encoding="utf-8"))
+
+            broken = root / "broken"
+            (broken / "src").mkdir(parents=True)
+            (broken / "config.py").write_text("'gui_title': 'MC_L4'\n", encoding="utf-8")
+            (broken / "pyappify.yml").write_text("git_url: https://github.com/sule99999/ok-wuthering-waves.git\n", encoding="utf-8")
+            (broken / "requirements.txt").write_text("numpy==2.5.2\n", encoding="utf-8")
+            broken_dist = root / "broken-dist" / "data" / "apps" / "MC_L4" / "working"
+            broken_dist.mkdir(parents=True)
+            failed = subprocess.run(
+                [
+                    node,
+                    str(probe),
+                    str(ROOT / ".github" / "scripts" / "overlay_packaged_source.js"),
+                    str(root / "broken-dist"),
+                    str(broken),
+                ],
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(0, failed.returncode)
+            self.assertIn("ok/__init__.py", failed.stderr)

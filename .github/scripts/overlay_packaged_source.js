@@ -16,7 +16,20 @@ const SOURCE_PATHS = [
     "README.md",
     "readme",
     "pyappify.yml",
+    // inline_ok_requirements vendors these and deletes their requirement lines.
+    "ok",
+    "pyappify",
 ];
+
+const VENDORED_REQUIREMENTS = [
+    ["ok-script", "ok"],
+    ["pyappify", "pyappify"],
+];
+
+function requirementIsPresent(requirementsText, packageName) {
+    const pattern = new RegExp(`^\\s*${packageName}\\b`, "im");
+    return pattern.test(requirementsText);
+}
 
 function overlayForkSource(appDistDir, appName, workspace = process.env.GITHUB_WORKSPACE) {
     if (!workspace) {
@@ -46,9 +59,25 @@ function overlayForkSource(appDistDir, appName, workspace = process.env.GITHUB_W
     if (packagedConfig.includes("ok-oldking/ok-ww-update") || packagedConfig.includes("ok-ww-update2")) {
         throw new Error("Packaged pyappify.yml still downloads an upstream update repository");
     }
+    const requirementsPath = path.join(working, "requirements.txt");
+    if (fs.existsSync(requirementsPath)) {
+        const requirementsText = fs.readFileSync(requirementsPath, "utf8");
+        for (const [packageName, folder] of VENDORED_REQUIREMENTS) {
+            if (requirementIsPresent(requirementsText, packageName)) {
+                continue;
+            }
+            const initFile = path.join(working, folder, "__init__.py");
+            if (!fs.existsSync(initFile)) {
+                throw new Error(
+                    `requirements.txt no longer installs ${packageName}, but ${folder}/__init__.py was not packaged`,
+                );
+            }
+        }
+    }
 }
 
 module.exports = {
     SOURCE_PATHS,
+    VENDORED_REQUIREMENTS,
     overlayForkSource,
 };

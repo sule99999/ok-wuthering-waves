@@ -685,12 +685,7 @@ class BaseWWTask(BaseTask):
         if send_esc:
             self.send_key('esc', after_sleep=1)
         self.click_dialog_right_button()
-        # Being in a team is already true inside a domain, so that alone is not an exit.
-        self.wait_until(
-            lambda: self.in_team()[0] and not self.in_realm(),
-            time_out=120,
-            raise_if_not_found=True,
-        )
+        self.wait_in_team_and_world(time_out=120)
 
     def click_dialog_right_button(self):
         confirm = self.find_one([
@@ -720,6 +715,7 @@ class BaseWWTask(BaseTask):
 
     def ensure_main(self, esc=True, time_out=30):
         self.info_set('current task', f'wait main esc={esc}')
+        self._realm_exit_attempted = False
         if not self.logged_in:
             time_out = 600
         if not self.wait_until(lambda: self.is_main(esc=esc), time_out=time_out, raise_if_not_found=False):
@@ -731,8 +727,12 @@ class BaseWWTask(BaseTask):
         if self.in_team_and_world():
             self.logged_in = True
             if self.in_realm():
-                self._leave_realm()
-                return not self.in_realm()
+                # One exit attempt, then let ensure_main's own timeout keep polling.
+                # A nested teleport wait here would ignore time_out=10/30.
+                if not getattr(self, '_realm_exit_attempted', False):
+                    self._realm_exit_attempted = True
+                    self._attempt_realm_exit()
+                return False
             return True
         if self.wait_login():
             return False
@@ -802,24 +802,42 @@ class BaseWWTask(BaseTask):
         return self.in_team()[
             0]  # and self.find_one(f'gray_book_button', threshold=0.7, canny_lower=50, canny_higher=150)
 
-    def _leave_realm(self):
+    def _attempt_realm_exit(self):
+        """Press Esc and confirm with either supported exit dialog. No long wait."""
         self.send_key('esc', after_sleep=1)
-        self.wait_click_feature(
+        clicked = self.wait_click_feature(
             'gray_confirm_exit_button', relative_x=-1, raise_if_not_found=False,
             time_out=3, click_after_delay=0.5, threshold=0.7, after_sleep=1)
-        # in_team() stays true inside a domain, so waiting on that alone returns immediately.
-        self.wait_until(
-            lambda: self.in_team()[0] and not self.in_realm(),
-            time_out=getattr(self, 'teleport_timeout', 120),
-            raise_if_not_found=True,
-        )
+        if clicked:
+            return
+        # Same confirm templates as esc_world_confirm. Missing both is an error,
+        # not a silent 120s wait.
+        self.click_dialog_right_button()
 
-    def make_sure_in_world(self):
-        """Leave a challenge domain before guidebook actions, or reach the main world."""
+    def make_sure_in_world(self, time_out=None):
+        """Leave a challenge domain, or reach the main screen.
+
+        Outside a domain this is ensure_main. Pass time_out to keep a caller's
+        previous ensure_main budget (Tacet and Daily use 180). Inside a domain,
+        the original DomainTask wait is teleport_timeout unless time_out is set.
+        """
         if self.in_realm():
-            self._leave_realm()
-        else:
+            self.send_key('esc', after_sleep=1)
+            self.wait_click_feature(
+                'gray_confirm_exit_button', relative_x=-1, raise_if_not_found=False,
+                time_out=3, click_after_delay=0.5, threshold=0.7, after_sleep=1)
+            budget = getattr(self, 'teleport_timeout', 120) if time_out is None else time_out
+            # in_team() stays true inside a domain, so waiting on that alone returns immediately.
+            self.wait_until(
+                lambda: self.in_team()[0] and not self.in_realm(),
+                time_out=budget,
+                raise_if_not_found=True,
+            )
+            return
+        if time_out is None:
             self.ensure_main()
+        else:
+            self.ensure_main(time_out=time_out)
 
     def get_angle_between(self, my_angle, angle):
         if my_angle > angle:
