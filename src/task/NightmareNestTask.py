@@ -49,7 +49,7 @@ class NightmareNestTask(WWOneTimeTask, BaseCombatTask):
         self._unreachable_nests.clear()
         self._nest_deaths.clear()
         WWOneTimeTask.run(self)
-        self.ensure_main(time_out=30)
+        self.make_sure_in_world()
         self._init_queue()
         self.log_info(self.tr('opened gray_book_boss'))
         while nest := self.get_nest_to_go():
@@ -62,7 +62,7 @@ class NightmareNestTask(WWOneTimeTask, BaseCombatTask):
         self._unreachable_nests.clear()
         self._nest_deaths.clear()
         WWOneTimeTask.run(self)
-        self.ensure_main(time_out=30)
+        self.make_sure_in_world()
         self._init_queue()
         self.log_info(self.tr('opened gray_book_boss'))
         while nest := self.get_nest_to_go():

@@ -37,7 +37,7 @@ def _install_missing_import_stubs():
         ok.BaseScene = BaseScene
         ok.Logger = Logger
         ok.find_boxes_by_name = lambda *_args, **_kwargs: None
-        ok.og = types.SimpleNamespace()
+        ok.og = types.SimpleNamespace(my_app=types.SimpleNamespace(logged_in=False))
         ok.find_color_rectangles = lambda *_args, **_kwargs: []
         ok.mask_white = lambda *_args, **_kwargs: None
 
@@ -110,8 +110,9 @@ class WorldStateTest(unittest.TestCase):
         task.wait_click_feature = click
         seen_timeouts = []
 
-        def wait_until(predicate, time_out=None, **_kwargs):
+        def wait_until(predicate, time_out=None, **kwargs):
             seen_timeouts.append(time_out)
+            self.assertTrue(kwargs.get("raise_if_not_found"))
             self.assertTrue(predicate())
 
         task.wait_until = wait_until
@@ -150,3 +151,50 @@ class WorldStateTest(unittest.TestCase):
         ]
 
         self.assertLess(ordered.index("make_sure_in_world"), ordered.index("open_daily"))
+
+    def test_tacet_and_nightmare_entry_leave_a_domain_first(self):
+        for path, class_name, function_name, later_call in (
+            ("src/task/TacetTask.py", "TacetTask", "run", "farm_tacet"),
+            ("src/task/NightmareNestTask.py", "NightmareNestTask", "run", "_init_queue"),
+            ("src/task/NightmareNestTask.py", "NightmareNestTask", "run_capture_mode", "_init_queue"),
+        ):
+            with self.subTest(function_name=f"{class_name}.{function_name}"):
+                function = _function(path, class_name, function_name)
+                ordered = [
+                    node.func.attr
+                    for node in sorted(
+                        (
+                            node for node in ast.walk(function)
+                            if isinstance(node, ast.Call)
+                            and isinstance(node.func, ast.Attribute)
+                            and isinstance(node.func.value, ast.Name)
+                            and node.func.value.id == "self"
+                            and node.func.attr in {"make_sure_in_world", later_call}
+                        ),
+                        key=lambda node: node.lineno,
+                    )
+                ]
+                self.assertLess(ordered.index("make_sure_in_world"), ordered.index(later_call))
+
+    def test_ensure_main_does_not_succeed_while_still_in_a_domain(self):
+        task = self._task()
+        from src.task.BaseWWTask import og
+        if getattr(og, "my_app", None) is None:
+            og.my_app = types.SimpleNamespace(logged_in=False)
+        task.in_team_and_world = lambda: True
+        task.in_realm_value = True
+        task.in_realm = lambda: task.in_realm_value
+        task.in_team = lambda: (True, 0, 3)
+        task.teleport_timeout = 3
+        events = []
+
+        def leave():
+            events.append("leave")
+
+        task._leave_realm = leave
+
+        self.assertFalse(task.is_main())
+        self.assertEqual(["leave"], events)
+
+        task.in_realm_value = False
+        self.assertTrue(task.is_main())

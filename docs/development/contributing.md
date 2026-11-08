@@ -49,6 +49,61 @@ This project only supports Python 3.12. Prefer using the repository-local virtua
 
 If `.venv` does not exist, use `python` instead of the interpreter path above.
 
+## 运行此 PR / Run this pull request
+
+本项目只在 Windows 上运行。贡献指南要求 Python 3.12。`pyproject.toml` 写了 `>=3.11`，但发布配置和 China 打包配置都是 3.12。下面的命令取出合并前的 PR 分支，不创建 tag，也不发布安装包。
+
+This project runs on Windows. The supported Python is 3.12. `pyproject.toml` allows `>=3.11`, but the release workflow and the China package profile both use 3.12. These commands check out this pull request before it is merged. They do not create a tag or publish an installer.
+
+```powershell
+git clone https://github.com/sule99999/ok-wuthering-waves.git
+cd ok-wuthering-waves
+git fetch origin pull/1/head:pr-1
+git checkout pr-1
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt --upgrade
+.\.venv\Scripts\python.exe main.py
+```
+
+`main_debug.py` 打开调试界面。`main_web.py` 需要再安装 `".[web-test]"`。任务参数见 README：`main.py -t 1 -e`。
+
+`main_debug.py` opens the debug UI. `main_web.py` also needs `".[web-test]"`. Task arguments are in the README: `main.py -t 1 -e`.
+
+这样启动时，窗口标题来自 `config.py` 的 `gui_title`（`MC_L4`）。ok-script 还会在系统标题后加上版本和渠道，源码运行时大约是 `MC_L4 dev`。任务管理器里的进程名仍是 `python.exe`。只有重新打出来的启动器才是 `MC_L4.exe`。
+
+This launch uses `gui_title` from `config.py` (`MC_L4`). ok-script appends the version and channel to the operating-system caption, so a source launch looks like `MC_L4 dev`. Task Manager still shows `python.exe`. Only a rebuilt launcher is `MC_L4.exe`.
+
+### 打包 / Packaging
+
+仓库里的打包入口是 `.github/workflows/build.yml`，只在推送 `v*` tag 时运行，运行环境是 `windows-latest` 和 Python 3.12。本 PR 没有创建 tag，也没有可用的安装包。
+
+The repository packages only from `.github/workflows/build.yml`, on a push of a `v*` tag, using `windows-latest` and Python 3.12. This pull request does not create a tag, and no installer is available from it.
+
+稳定版 tag（`v1.2.3` 这种）还会走 SignPath 签名。签名使用 workflow 里 ok-oldking 的 organization、project slug 和 `SIGNPATH_API_TOKEN`。这个 fork 没有这些 secret，不能替上游签名。预发布 tag 会跳过签名并继续打包。
+
+A stable tag such as `v1.2.3` also requests SignPath signing. The workflow uses ok-oldking's organization, project slug, and `SIGNPATH_API_TOKEN`. This fork does not have those secrets, so it cannot sign for upstream. A prerelease tag skips signing and continues packaging.
+
+打包脚本会把当前检出的源码覆盖进 `data/apps/MC_L4/working`，避免安装包去跑上游 `ok-ww-update` 仓库里的旧 `config.py`。两个 profile 的 `git_url` 都是 `https://github.com/sule99999/ok-wuthering-waves.git`。PyAppify 之后的应用内更新只检出 semver tag；在包含这些修改的 tag 出现之前，更新不会把本 PR 再拉下来。不要把 `pyappify.yml` 指回 `ok-oldking/ok-ww-update` 或 `ok-ww-update2`。
+
+The packaging script copies the checked-out source into `data/apps/MC_L4/working`, so the installer does not run the old `config.py` from the upstream `ok-ww-update` repositories. Both profile `git_url` values are `https://github.com/sule99999/ok-wuthering-waves.git`. Later in-app updates check out semver tags only; until a tag contains these changes, an update will not fetch this pull request again. Do not point `pyappify.yml` back at `ok-oldking/ok-ww-update` or `ok-ww-update2`.
+
+本地或 workflow 成功打包后，`pyappify_dist` 里会有：
+
+A successful package, locally or in the workflow, writes these files under `pyappify_dist`:
+
+- `MC_L4-win32.zip`（内含 `MC_L4/MC_L4.exe`）
+- `MC_L4-win32-China-setup-<version>.exe`
+- `MC_L4-win32-Global-setup-<version>.exe`
+- `MC_L4-win32-online-setup-<version>.exe`
+
+`<version>` 是去掉开头 `v` 的 tag。启动器进程名是 `MC_L4.exe`。China 配置再用 `pythonw.exe` 跑界面，Global 默认用 `python.exe`。这两种 Python 进程名都不会变成 `MC_L4`。
+
+`<version>` is the tag without a leading `v`. The launcher process name is `MC_L4.exe`. The China profile then runs the UI with `pythonw.exe`; Global uses `python.exe` by default. Those Python process names do not become `MC_L4`.
+
+在 Windows 上手动打这个 PR 的包，还需要 Git、Node.js、pnpm、Rust stable，以及能克隆 `ok-oldking/pyappify` 和 `ok-oldking/pyappify-action`。workflow 里的 `.github/scripts/run_pyappify_action.sh` 依赖 `GITHUB_WORKSPACE` 和 `RUNNER_TEMP`，它不是一条已经验证过的本机安装命令。这里没有生成安装包。
+
+Building this pull request by hand on Windows also requires Git, Node.js, pnpm, Rust stable, and clones of `ok-oldking/pyappify` and `ok-oldking/pyappify-action`. `.github/scripts/run_pyappify_action.sh` depends on `GITHUB_WORKSPACE` and `RUNNER_TEMP`; it is not a verified local install command. No installer was produced here.
+
 ## 测试 / Testing
 
 提交 PR 前，请尽量运行相关测试，并在 PR 描述中说明测试结果。

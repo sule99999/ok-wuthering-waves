@@ -58,19 +58,24 @@ class TestScheduleSupport(unittest.TestCase):
 
                 self.assertTrue(has_schedule_assignment, file_path.as_posix())
 
-    def test_tacet_task_run_handles_login_before_entering_world(self):
+    def test_tacet_task_run_leaves_a_domain_before_farming(self):
         run_node = _class_function("src/task/TacetTask.py", "TacetTask", "run")
-
-        ensure_main_calls = [
-            node for node in ast.walk(run_node)
-            if isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and isinstance(node.func.value, ast.Name)
-            and node.func.value.id == "self"
-            and node.func.attr == "ensure_main"
+        ordered = [
+            node.func.attr
+            for node in sorted(
+                (
+                    node for node in ast.walk(run_node)
+                    if isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id == "self"
+                    and node.func.attr in {"make_sure_in_world", "farm_tacet", "ensure_main"}
+                ),
+                key=lambda node: node.lineno,
+            )
         ]
 
-        self.assertTrue(ensure_main_calls)
+        self.assertEqual(["make_sure_in_world", "farm_tacet"], ordered)
 
     def test_multi_account_returns_to_main_before_switching_to_login(self):
         run_node = _class_function("src/task/MultiAccountDailyTask.py", "MultiAccountDailyTask", "run")

@@ -17,7 +17,11 @@ dest="${RUNNER_TEMP}/pyappify-action"
 rm -rf "$dest"
 git clone --depth 1 https://github.com/ok-oldking/pyappify-action.git "$dest"
 "$python_bin" "${GITHUB_WORKSPACE}/.github/scripts/patch_pyappify_build_config.py" \
-  "${dest}/build-config.js"
+  build-config "${dest}/build-config.js"
+cp "${GITHUB_WORKSPACE}/.github/scripts/overlay_packaged_source.js" \
+  "${dest}/overlay_packaged_source.js"
+"$python_bin" "${GITHUB_WORKSPACE}/.github/scripts/patch_pyappify_build_config.py" \
+  index "${dest}/index.js"
 
 (
   cd "$dest"

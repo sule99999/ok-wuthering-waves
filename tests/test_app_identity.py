@@ -61,8 +61,11 @@ class AppIdentityTest(unittest.TestCase):
         self.assertIn('author="ok-oldking"', setup_source)
         self.assertIn('name = "ok-ww"', project_source)
         self.assertIn("GNU AFFERO GENERAL PUBLIC LICENSE", license_source)
-        self.assertIn("https://github.com/ok-oldking/ok-ww-update.git", pyappify_source)
-        self.assertIn("https://cnb.cool/ok-oldking/ok-ww-update2.git", pyappify_source)
+        self.assertIn("https://github.com/sule99999/ok-wuthering-waves.git", pyappify_source)
+        self.assertNotIn("ok-oldking/ok-ww-update", pyappify_source)
+        self.assertNotIn("ok-ww-update2", pyappify_source)
+        self.assertNotIn("update_pyappify", config_source)
+        self.assertNotIn("ok-ww-win32.zip", config_source)
         self.assertIn("uses: ./.github/actions/package-launcher", workflow)
         self.assertNotIn("uses: ok-oldking/pyappify-action@master", workflow)
 
@@ -157,3 +160,57 @@ class AppIdentityTest(unittest.TestCase):
         self.assertEqual(APP_NAME, result["windowTitle"])
         self.assertEqual("MC-L4", result["identifier"])
         self.assertTrue(result["identifierOk"])
+
+    def test_packager_overlays_this_checkout_instead_of_the_cloned_tag(self):
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("patch_pyappify_build_config", PATCH_SCRIPT)
+        patcher = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(patcher)
+        patched = patcher.patch_action_index(
+            "await setupProfile(exec.exec, exeDestPath, profile.name, appName, appDistDir, setupVersion);\n"
+        )
+        self.assertIn("overlayForkSource(appDistDir, appName)", patched)
+        self.assertEqual(patched, patcher.patch_action_index(patched))
+
+        node = shutil.which("node")
+        if node is None:
+            self.skipTest("node is not installed")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace = root / "workspace"
+            packaged = root / "dist" / "data" / "apps" / "MC_L4" / "working"
+            packaged.mkdir(parents=True)
+            (packaged / "config.py").write_text("gui_title = 'OK-WW'\n", encoding="utf-8")
+            (packaged / "pyappify.yml").write_text(
+                "git_url: https://github.com/ok-oldking/ok-ww-update.git\n",
+                encoding="utf-8",
+            )
+            (workspace / "src").mkdir(parents=True)
+            (workspace / "src" / "task.py").write_text("fork\n", encoding="utf-8")
+            (workspace / "config.py").write_text("'gui_title': 'MC_L4'\n", encoding="utf-8")
+            (workspace / "pyappify.yml").write_text(
+                "git_url: https://github.com/sule99999/ok-wuthering-waves.git\n",
+                encoding="utf-8",
+            )
+            probe = root / "probe.js"
+            probe.write_text(
+                "const { overlayForkSource } = require(process.argv[2]);\n"
+                "overlayForkSource(process.argv[3], 'MC_L4', process.argv[4]);\n",
+                encoding="utf-8",
+            )
+            subprocess.run(
+                [
+                    node,
+                    str(probe),
+                    str(ROOT / ".github" / "scripts" / "overlay_packaged_source.js"),
+                    str(root / "dist"),
+                    str(workspace),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual("fork\n", (packaged / "src" / "task.py").read_text(encoding="utf-8"))
+            self.assertIn("MC_L4", (packaged / "config.py").read_text(encoding="utf-8"))
+            self.assertNotIn("ok-ww-update", (packaged / "pyappify.yml").read_text(encoding="utf-8"))

@@ -685,7 +685,12 @@ class BaseWWTask(BaseTask):
         if send_esc:
             self.send_key('esc', after_sleep=1)
         self.click_dialog_right_button()
-        self.wait_in_team_and_world(time_out=120)
+        # Being in a team is already true inside a domain, so that alone is not an exit.
+        self.wait_until(
+            lambda: self.in_team()[0] and not self.in_realm(),
+            time_out=120,
+            raise_if_not_found=True,
+        )
 
     def click_dialog_right_button(self):
         confirm = self.find_one([
@@ -726,7 +731,8 @@ class BaseWWTask(BaseTask):
         if self.in_team_and_world():
             self.logged_in = True
             if self.in_realm():
-                self.esc_world_confirm()
+                self._leave_realm()
+                return not self.in_realm()
             return True
         if self.wait_login():
             return False
@@ -796,18 +802,22 @@ class BaseWWTask(BaseTask):
         return self.in_team()[
             0]  # and self.find_one(f'gray_book_button', threshold=0.7, canny_lower=50, canny_higher=150)
 
+    def _leave_realm(self):
+        self.send_key('esc', after_sleep=1)
+        self.wait_click_feature(
+            'gray_confirm_exit_button', relative_x=-1, raise_if_not_found=False,
+            time_out=3, click_after_delay=0.5, threshold=0.7, after_sleep=1)
+        # in_team() stays true inside a domain, so waiting on that alone returns immediately.
+        self.wait_until(
+            lambda: self.in_team()[0] and not self.in_realm(),
+            time_out=getattr(self, 'teleport_timeout', 120),
+            raise_if_not_found=True,
+        )
+
     def make_sure_in_world(self):
         """Leave a challenge domain before guidebook actions, or reach the main world."""
         if self.in_realm():
-            self.send_key('esc', after_sleep=1)
-            self.wait_click_feature(
-                'gray_confirm_exit_button', relative_x=-1, raise_if_not_found=False,
-                time_out=3, click_after_delay=0.5, threshold=0.7, after_sleep=1)
-            # in_team() stays true inside a domain, so waiting on that alone returns immediately.
-            self.wait_until(
-                lambda: self.in_team()[0] and not self.in_realm(),
-                time_out=getattr(self, 'teleport_timeout', 120),
-            )
+            self._leave_realm()
         else:
             self.ensure_main()
 
