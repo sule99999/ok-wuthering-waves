@@ -78,6 +78,15 @@ class AppIdentityTest(unittest.TestCase):
         self.assertIn("needs.synchronize.result == 'skipped'", workflow)
         self.assertIn("SIGN_BUILD: ${{ needs.validate.outputs.is_release }}", workflow)
         self.assertIn("uses: ./.github/actions/package-launcher", workflow)
+        artifact = (ROOT / ".github" / "workflows" / "windows-artifact.yml").read_text(encoding="utf-8")
+        self.assertIn("permissions:\n  contents: read", artifact)
+        self.assertIn("python -m ok.update.inline_ok_requirements", artifact)
+        self.assertIn("uses: ./.github/actions/package-launcher", artifact)
+        self.assertIn("name: MC_L4-windows-unsigned", artifact)
+        self.assertNotIn("action-gh-release", artifact)
+        self.assertNotIn("signpath", artifact.lower())
+        self.assertNotIn("mirrorchyan", artifact.lower())
+        self.assertNotIn("workflow_dispatch", artifact)
         self.assertNotIn("uses: ok-oldking/pyappify-action@master", workflow)
 
     def test_packaged_name_keeps_a_tauri_safe_bundle_identifier(self):

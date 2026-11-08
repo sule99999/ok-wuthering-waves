@@ -1,0 +1,136 @@
+# Unsigned Windows installers for this branch. No tag, GitHub Release,
+# code signing, upstream sync, or third-party distribution. A manual button
+# is not declared: GitHub only shows one after this file is on the default branch.
+name: Windows unsigned artifact
+
+on:
+  push:
+    branches:
+      - cursor/mc-l4-window-and-exe-name-5999
+    paths:
+      - .github/workflows/windows-artifact.yml
+      - .github/actions/package-launcher/**
+      - .github/scripts/**
+      - pyappify.yml
+      - config.py
+      - main.py
+      - main_debug.py
+      - main_web.py
+      - src/**
+      - requirements.txt
+      - pyproject.toml
+      - icons/**
+      - assets/**
+      - i18n/**
+      - deploy.txt
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-unsigned-artifact-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    name: Build unsigned Windows installers
+    runs-on: windows-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: python .github/scripts/install_dependencies.py
+
+      - name: Vendor ok and pyappify from this checkout
+        shell: pwsh
+        run: |
+          $tag = "pr.$($env:GITHUB_SHA.Substring(0, 12))"
+          python -m ok.update.inline_ok_requirements --tag $tag
+          if (-not (Test-Path 'ok\__init__.py')) { throw 'ok was not vendored' }
+          if (-not (Test-Path 'pyappify\__init__.py')) { throw 'pyappify was not vendored' }
+          $config = Get-Content -Raw config.py
+          if ($config -notmatch "gui_title.: .MC_L4") { throw 'config.py lost the MC_L4 title' }
+
+      - name: Package installers
+        uses: ./.github/actions/package-launcher
+        with:
+          build_exe_only: 'false'
+          add_version_name: 'false'
+
+      - name: Check packaged files
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Get-ChildItem pyappify_dist | ForEach-Object { '{0} {1}' -f $_.Length, $_.Name }
+          $required = @(
+            'MC_L4-win32.zip',
+            'MC_L4-win32-online-setup.exe',
+            'MC_L4-win32-China-setup.exe',
+            'MC_L4-win32-Global-setup.exe'
+          )
+          foreach ($name in $required) {
+            $path = Join-Path 'pyappify_dist' $name
+            if (-not (Test-Path $path)) { throw "Missing $path" }
+          }
+          $china = Get-Item 'pyappify_dist\MC_L4-win32-China-setup.exe'
+          if ($china.Length -lt 30MB) {
+            throw "China installer is $($china.Length) bytes, too small to contain the Python runtime"
+          }
+          $extract = Join-Path $env:RUNNER_TEMP 'launcher-zip'
+          Expand-Archive 'pyappify_dist\MC_L4-win32.zip' $extract
+          $exe = Get-ChildItem $extract -Recurse -Filter 'MC_L4.exe' | Select-Object -First 1
+          if (-not $exe) { throw 'MC_L4.exe was not inside MC_L4-win32.zip' }
+          $exe.VersionInfo | Format-List ProductName, FileDescription, OriginalFilename, FileName | Out-String | Write-Host
+          $sevenZip = 'C:\Program Files\7-Zip\7z.exe'
+          if (Test-Path $sevenZip) {
+            & $sevenZip l $china.FullName | Select-String -Pattern 'MC_L4.exe|python.exe|pythonw.exe|config.py' |
+              ForEach-Object { $_.Line }
+          } else {
+            Write-Host '7-Zip is not installed; installer contents were not listed'
+          }
+
+      - name: Upload unsigned installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: MC_L4-windows-unsigned
+          path: pyappify_dist/*
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Smoke-test the launcher without starting the game
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $extract = Join-Path $env:RUNNER_TEMP 'launcher-smoke'
+          New-Item -ItemType Directory -Force $extract | Out-Null
+          Expand-Archive 'pyappify_dist\MC_L4-win32.zip' $extract -Force
+          $exe = Get-ChildItem $extract -Recurse -Filter 'MC_L4.exe' | Select-Object -First 1
+          $response = Join-Path $env:RUNNER_TEMP 'version-list.json'
+          $stdout = Join-Path $env:RUNNER_TEMP 'mc-l4-stdout.txt'
+          $stderr = Join-Path $env:RUNNER_TEMP 'mc-l4-stderr.txt'
+          $proc = Start-Process -FilePath $exe.FullName -ArgumentList @(
+            '--get-version-list', '--response-file', $response
+          ) -WorkingDirectory $exe.DirectoryName -PassThru -WindowStyle Hidden `
+            -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          if (-not $proc.WaitForExit(90000)) {
+            Stop-Process -Id $proc.Id -Force
+            throw 'MC_L4.exe did not exit within 90 seconds'
+          }
+          Write-Host "exit=$($proc.ExitCode)"
+          if (Test-Path $stdout) { Get-Content $stdout | Write-Host }
+          if (Test-Path $stderr) { Get-Content $stderr | Write-Host }
+          if (Test-Path $response) { Get-Content $response | Write-Host }
+          if ($proc.ExitCode -ne 0) { throw "MC_L4.exe --get-version-list exited $($proc.ExitCode)" }

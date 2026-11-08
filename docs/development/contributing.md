@@ -75,9 +75,13 @@ This launch uses `gui_title` from `config.py` (`MC_L4`). ok-script appends the v
 
 ### 打包 / Packaging
 
-仓库里的打包入口是 `.github/workflows/build.yml`，只在推送 `v*` tag 时运行，运行环境是 `windows-latest` 和 Python 3.12。本 PR 没有创建 tag，也没有可用的安装包。
+仓库里的正式发布入口是 `.github/workflows/build.yml`，只在推送 `v*` tag 时运行，运行环境是 `windows-latest` 和 Python 3.12。那个 workflow 会创建 GitHub Release，稳定版还会请求 SignPath。
 
-The repository packages only from `.github/workflows/build.yml`, on a push of a `v*` tag, using `windows-latest` and Python 3.12. This pull request does not create a tag, and no installer is available from it.
+The release entry point is `.github/workflows/build.yml`. It runs only on a `v*` tag, on `windows-latest` with Python 3.12. That workflow creates a GitHub Release, and a stable tag also requests SignPath.
+
+这个 PR 另有 `.github/workflows/windows-artifact.yml`。它在本分支相关文件被推送时，用同一套打包脚本打未签名的 Windows 安装包，并上传为 Actions artifact `MC_L4-windows-unsigned`。它不创建 tag、Release，不签名，也不上传 MirrorChyan。下载者不用安装 Git 或系统 Python 来编译；安装包里的 China/Global 配置会带上 PyAppify 在打包时下载的 Python 3.12。启动器进程名是 `MC_L4.exe`，界面进程仍是随包的 `pythonw.exe`（China）或 `python.exe`（Global）。
+
+This pull request also has `.github/workflows/windows-artifact.yml`. A push of the relevant files on this branch builds unsigned Windows installers with the same packaging scripts and uploads the Actions artifact `MC_L4-windows-unsigned`. It does not create a tag or a Release, and it does not sign or upload to MirrorChyan. Someone downloading it does not install Git or a system Python in order to compile. The China and Global installers include the Python 3.12 runtime PyAppify downloaded while packaging. The launcher process is `MC_L4.exe`. The UI process remains the bundled `pythonw.exe` (China) or `python.exe` (Global).
 
 稳定版 tag（`v1.2.3` 这种）还会走 SignPath 签名。签名使用 workflow 里 ok-oldking 的 organization、project slug 和 `SIGNPATH_API_TOKEN`。这个 fork 没有这些 secret，不能替上游签名。预发布 tag 会跳过签名并继续打包。
 
