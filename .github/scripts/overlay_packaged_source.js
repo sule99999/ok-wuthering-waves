@@ -76,6 +76,28 @@ function overlayForkSource(appDistDir, appName, workspace = process.env.GITHUB_W
         }
     }
     slimProfileClone(appDistDir, appName);
+    removeNonRuntimeWorkingFiles(working);
+}
+
+// The profile checkout copies the whole repository into working/. These paths are
+// not imported by the app. Measured in the 1.15 GiB Global installer from
+// fe3ec5d: ok_templates 880 MB and tests 130 MB, mostly images. Upstream
+// v3.7.19's Global installer does not contain either directory.
+const NON_RUNTIME_WORKING_PATHS = [
+    "ok_templates",
+    "tests",
+    ".github",
+    ".agents",
+    ".codex",
+    "docs",
+    "mkdocs.yml",
+    "setup.py",
+];
+
+function removeNonRuntimeWorkingFiles(working) {
+    for (const relativePath of NON_RUNTIME_WORKING_PATHS) {
+        fs.rmSync(path.join(working, relativePath), { recursive: true, force: true });
+    }
 }
 
 function slimProfileClone(appDistDir, appName) {
@@ -101,4 +123,5 @@ module.exports = {
     VENDORED_REQUIREMENTS,
     overlayForkSource,
     slimProfileClone,
+    NON_RUNTIME_WORKING_PATHS,
 };

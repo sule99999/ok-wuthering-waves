@@ -63,6 +63,30 @@ jobs:
           $config = Get-Content -Raw config.py
           if ($config -notmatch "gui_title.: .MC_L4") { throw 'config.py lost the MC_L4 title' }
 
+      - name: Keep only the Global profile for this artifact
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Global inherits these values from the China profile when both are
+          # present. A one-profile file must repeat them or pip and pythonw change.
+          @'
+          name: "MC_L4"
+          uac: true
+          icon: "icons/icon.png"
+          website: "http://ok-script.com/ok-ww"
+
+          profiles:
+            - name: "Global"
+              git_url: "https://github.com/sule99999/ok-wuthering-waves.git"
+              admin: true
+              main_script: "main.py"
+              requires_python: "3.12"
+              requirements: "requirements.txt"
+              use_pythonw: true
+              pip_args: "--no-deps"
+              show_add_defender: true
+          '@ | Set-Content -Encoding utf8 pyappify.yml
+
       - name: Package from a short directory
         shell: pwsh
         run: |
@@ -92,19 +116,15 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $dist = 'D:\b\pyappify_dist'
           Get-ChildItem $dist | ForEach-Object { '{0} {1}' -f $_.Length, $_.Name }
-          $required = @(
-            'MC_L4-win32.zip',
-            'MC_L4-win32-online-setup.exe',
-            'MC_L4-win32-China-setup.exe',
-            'MC_L4-win32-Global-setup.exe'
-          )
-          foreach ($name in $required) {
-            $path = Join-Path $dist $name
-            if (-not (Test-Path $path)) { throw "Missing $path" }
+          $global = Get-Item (Join-Path $dist 'MC_L4-win32-Global-setup.exe')
+          if (Get-ChildItem $dist -Filter '*-China-setup.exe') {
+            throw 'A China installer was built; this artifact is Global only'
           }
-          $china = Get-Item (Join-Path $dist 'MC_L4-win32-China-setup.exe')
-          if ($china.Length -lt 30MB) {
-            throw "China installer is $($china.Length) bytes, too small to contain the Python runtime"
+          if ($global.Length -lt 80MB) {
+            throw "Global installer is $($global.Length) bytes, too small to contain Python and OpenVINO"
+          }
+          if ($global.Length -gt 550MB) {
+            throw "Global installer is $($global.Length) bytes, larger than the upstream-sized budget"
           }
           $extract = Join-Path $env:RUNNER_TEMP 'launcher-zip'
           Expand-Archive (Join-Path $dist 'MC_L4-win32.zip') $extract
@@ -112,18 +132,25 @@ jobs:
           if (-not $exe) { throw 'MC_L4.exe was not inside MC_L4-win32.zip' }
           $exe.VersionInfo | Format-List ProductName, FileDescription, OriginalFilename, FileName | Out-String | Write-Host
           $sevenZip = 'C:\Program Files\7-Zip\7z.exe'
-          if (Test-Path $sevenZip) {
-            & $sevenZip l $china.FullName | Select-String -Pattern 'MC_L4.exe|python.exe|pythonw.exe|config.py' |
-              ForEach-Object { $_.Line }
-          } else {
-            Write-Host '7-Zip is not installed; installer contents were not listed'
+          if (-not (Test-Path $sevenZip)) { throw '7-Zip is required to verify the installer contents' }
+          $listing = & $sevenZip l $global.FullName
+          $listing | Select-String -Pattern 'MC_L4.exe|python\\python.exe|python\\pythonw.exe|working\\config.py|working\\ok\\|working\\assets\\' |
+            ForEach-Object { $_.Line }
+          if ($listing -match 'working/ok_templates/|working\\ok_templates\\') {
+            throw 'Global installer still contains ok_templates'
+          }
+          if ($listing -match 'working/tests/|working\\tests\\') {
+            throw 'Global installer still contains tests'
+          }
+          if ($listing -notmatch 'python\\python.exe' -and $listing -notmatch 'python/python.exe') {
+            throw 'Global installer does not contain the bundled Python runtime'
           }
 
       - name: Upload unsigned installers
         uses: actions/upload-artifact@v4
         with:
-          name: MC_L4-windows-unsigned
-          path: D:\b\pyappify_dist\*
+          name: MC_L4-win32-Global
+          path: D:\b\pyappify_dist\MC_L4-win32-Global-setup.exe
           if-no-files-found: error
           retention-days: 14
           compression-level: 0

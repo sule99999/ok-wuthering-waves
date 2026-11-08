@@ -82,7 +82,9 @@ class AppIdentityTest(unittest.TestCase):
         self.assertIn("permissions:\n  contents: read", artifact)
         self.assertIn("python -m ok.update.inline_ok_requirements", artifact)
         self.assertIn("uses: ./.github/actions/package-launcher", artifact)
-        self.assertIn("name: MC_L4-windows-unsigned", artifact)
+        self.assertIn("name: MC_L4-win32-Global", artifact)
+        self.assertIn("MC_L4-win32-Global-setup.exe", artifact)
+        self.assertNotIn("MC_L4-win32-China-setup.exe", artifact)
         self.assertIn("PACKAGE_ROOT: D:/b", artifact)
         self.assertNotIn("action-gh-release", artifact)
         self.assertNotIn("signpath", artifact.lower())
@@ -249,6 +251,23 @@ class AppIdentityTest(unittest.TestCase):
             self.assertFalse((bulky / "ok_templates").exists())
             self.assertTrue((bulky / ".git" / "HEAD").is_file())
             self.assertLess((bulky / ".git" / "HEAD").stat().st_size, 100)
+            (packaged / "ok_templates").mkdir()
+            (packaged / "ok_templates" / "sample.jpg").write_bytes(b"jpg")
+            (packaged / "tests" / "images").mkdir(parents=True)
+            (packaged / "tests" / "images" / "absorb.png").write_bytes(b"png")
+            (packaged / "assets").mkdir()
+            (packaged / "assets" / "keep.txt").write_text("keep\n", encoding="utf-8")
+            (packaged / "LICENSE.txt").write_text("GNU AFFERO GENERAL PUBLIC LICENSE\n", encoding="utf-8")
+            subprocess.run(
+                [node, str(probe), str(ROOT / ".github" / "scripts" / "overlay_packaged_source.js"), str(root / "dist"), str(workspace)],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            self.assertFalse((packaged / "ok_templates").exists())
+            self.assertFalse((packaged / "tests").exists())
+            self.assertEqual("keep\n", (packaged / "assets" / "keep.txt").read_text(encoding="utf-8"))
+            self.assertIn("GNU AFFERO", (packaged / "LICENSE.txt").read_text(encoding="utf-8"))
 
             inlined = root / "inlined"
             inlined_src = inlined / "src"
