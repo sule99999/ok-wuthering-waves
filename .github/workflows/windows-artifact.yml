@@ -102,6 +102,34 @@ jobs:
           if ($LASTEXITCODE -ge 8) { throw "robocopy failed with exit $LASTEXITCODE" }
           exit 0
 
+      - name: Install NSIS from the GitHub API
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # The release CDN currently returns 504 for this zip. The asset API
+          # still serves the same bytes Tauri verifies (SHA1 EF7FF767...).
+          $dest = Join-Path $env:LOCALAPPDATA 'tauri\NSIS'
+          if (Test-Path (Join-Path $dest 'makensis.exe')) {
+            Write-Host "NSIS already present at $dest"
+            exit 0
+          }
+          $zip = Join-Path $env:RUNNER_TEMP 'nsis-3.11.zip'
+          $dll = Join-Path $env:RUNNER_TEMP 'nsis_tauri_utils.dll'
+          curl.exe -fL --retry 5 --retry-all-errors -H "Authorization: Bearer $env:GH_TOKEN" -H "Accept: application/octet-stream" -o $zip https://api.github.com/repos/tauri-apps/binary-releases/releases/assets/317051073
+          curl.exe -fL --retry 5 --retry-all-errors -H "Authorization: Bearer $env:GH_TOKEN" -H "Accept: application/octet-stream" -o $dll https://api.github.com/repos/tauri-apps/nsis-tauri-utils/releases/assets/345882097
+          $extract = Join-Path $env:RUNNER_TEMP 'nsis-extract'
+          Expand-Archive -LiteralPath $zip -DestinationPath $extract
+          New-Item -ItemType Directory -Force $dest | Out-Null
+          Copy-Item -Path (Join-Path $extract 'nsis-3.11\*') -Destination $dest -Recurse -Force
+          $dllDir = Join-Path $dest 'Plugins\x86-unicode\additional'
+          New-Item -ItemType Directory -Force $dllDir | Out-Null
+          Copy-Item -LiteralPath $dll -Destination (Join-Path $dllDir 'nsis_tauri_utils.dll') -Force
+          if (-not (Test-Path (Join-Path $dest 'makensis.exe'))) {
+            throw "makensis.exe was not extracted to $dest"
+          }
+
       - name: Package installers
         uses: ./.github/actions/package-launcher
         env:
