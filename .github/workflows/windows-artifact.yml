@@ -164,13 +164,13 @@ jobs:
           $listing = & $sevenZip l $global.FullName
           $listing | Select-String -Pattern 'MC_L4.exe|python\\python.exe|python\\pythonw.exe|working\\config.py|working\\ok\\|working\\assets\\' |
             ForEach-Object { $_.Line }
-          if ($listing -match 'working/ok_templates/|working\\ok_templates\\') {
+          if ($listing | Select-String -SimpleMatch -Pattern 'ok_templates' -Quiet) {
             throw 'Global installer still contains ok_templates'
           }
-          if ($listing -match 'working/tests/|working\\tests\\') {
+          if ($listing | Select-String -SimpleMatch -Pattern 'working\tests\' -Quiet) {
             throw 'Global installer still contains tests'
           }
-          if ($listing -notmatch 'python\\python.exe' -and $listing -notmatch 'python/python.exe') {
+          if (-not ($listing | Select-String -SimpleMatch -Pattern 'python.exe' -Quiet)) {
             throw 'Global installer does not contain the bundled Python runtime'
           }
 
