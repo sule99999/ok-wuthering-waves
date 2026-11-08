@@ -195,12 +195,25 @@ jobs:
           $dest = 'D:\mcl4smoke'
           $installer = 'D:\b\pyappify_dist\MC_L4-win32-Global-setup.exe'
           cmd /c "`"$installer`" /S /D=$dest"
-          $deadline = (Get-Date).AddMinutes(3)
+          $deadline = (Get-Date).AddMinutes(5)
           $installed = Join-Path $dest 'MC_L4.exe'
-          while (-not (Test-Path $installed)) {
-            if ((Get-Date) -gt $deadline) { throw "Installer did not produce $installed" }
+          $python = Join-Path $dest 'data\apps\MC_L4\python\python.exe'
+          $stable = 0
+          $lastSize = -1
+          while ($stable -lt 3) {
+            if ((Get-Date) -gt $deadline) {
+              Get-ChildItem $dest -Recurse -ErrorAction SilentlyContinue | Select-Object -First 40 FullName | Out-String | Write-Host
+              throw "Installer did not finish writing $python"
+            }
+            if ((Test-Path $installed) -and (Test-Path $python)) {
+              $size = (Get-Item $python).Length
+              if ($size -gt 0 -and $size -eq $lastSize) { $stable++ } else { $stable = 0; $lastSize = $size }
+            } else {
+              $stable = 0
+            }
             Start-Sleep -Seconds 2
           }
+          Write-Host "python.exe size=$lastSize"
           $stdout = Join-Path $dest 'stdout.txt'
           $stderr = Join-Path $dest 'stderr.txt'
           $proc = Start-Process -FilePath $installed -WorkingDirectory $dest -PassThru `
@@ -231,6 +244,9 @@ jobs:
           }
           if ($text -match 'Attempting to clone') {
             throw 'Startup started a full clone instead of opening the packaged repository'
+          }
+          if ($text -match 'Deleting app artifacts') {
+            throw 'Startup deleted the installed app because Python was not found'
           }
           if ($text -notmatch 'First load, checking update') {
             throw 'Launcher did not finish the startup load'
