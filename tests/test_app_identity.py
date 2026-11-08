@@ -83,7 +83,7 @@ class AppIdentityTest(unittest.TestCase):
         self.assertIn("python -m ok.update.inline_ok_requirements", artifact)
         self.assertIn("uses: ./.github/actions/package-launcher", artifact)
         self.assertIn("name: MC_L4-windows-unsigned", artifact)
-        self.assertIn("PACKAGE_ROOT: C:/b", artifact)
+        self.assertIn("PACKAGE_ROOT: D:/b", artifact)
         self.assertNotIn("action-gh-release", artifact)
         self.assertNotIn("signpath", artifact.lower())
         self.assertNotIn("mirrorchyan", artifact.lower())
