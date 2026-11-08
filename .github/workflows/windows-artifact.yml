@@ -72,8 +72,11 @@ jobs:
           # D:\a\ok-wuthering-waves\... checkout makes those paths longer than
           # the legacy Windows limit, and the launcher's git library stops.
           New-Item -ItemType Directory -Force C:\b | Out-Null
+          # Robocopy uses 0-7 for success. PowerShell must not treat those as failures.
+          $PSNativeCommandUseErrorActionPreference = $false
           & robocopy $env:GITHUB_WORKSPACE C:\b /E /XD .git /NFL /NDL /NJH /NJS /nc /ns /np
           if ($LASTEXITCODE -ge 8) { throw "robocopy failed with exit $LASTEXITCODE" }
+          exit 0
 
       - name: Package installers
         uses: ./.github/actions/package-launcher
