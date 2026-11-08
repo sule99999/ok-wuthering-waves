@@ -79,9 +79,21 @@ This launch uses `gui_title` from `config.py` (`MC_L4`). ok-script appends the v
 
 The release entry point is `.github/workflows/build.yml`. It runs only on a `v*` tag, on `windows-latest` with Python 3.12. That workflow creates a GitHub Release, and a stable tag also requests SignPath.
 
-这个 PR 另有 `.github/workflows/windows-artifact.yml`。它在本分支相关文件被推送时，用同一套打包脚本打未签名的 Windows 安装包，并上传为 Actions artifact `MC_L4-windows-unsigned`。它不创建 tag、Release，不签名，也不上传 MirrorChyan。下载者不用安装 Git 或系统 Python 来编译；安装包里的 China/Global 配置会带上 PyAppify 在打包时下载的 Python 3.12。启动器进程名是 `MC_L4.exe`，界面进程仍是随包的 `pythonw.exe`（China）或 `python.exe`（Global）。
+这个 PR 另有 `.github/workflows/windows-artifact.yml`。它在本分支相关文件被推送时，用同一套打包脚本打未签名的 Windows 安装包，并上传为 Actions artifact `MC_L4-windows-unsigned`。它不创建 tag、Release，不签名，也不上传 MirrorChyan。
 
-This pull request also has `.github/workflows/windows-artifact.yml`. A push of the relevant files on this branch builds unsigned Windows installers with the same packaging scripts and uploads the Actions artifact `MC_L4-windows-unsigned`. It does not create a tag or a Release, and it does not sign or upload to MirrorChyan. Someone downloading it does not install Git or a system Python in order to compile. The China and Global installers include the Python 3.12 runtime PyAppify downloaded while packaging. The launcher process is `MC_L4.exe`. The UI process remains the bundled `pythonw.exe` (China) or `python.exe` (Global).
+This pull request also has `.github/workflows/windows-artifact.yml`. A push of the relevant files on this branch builds unsigned Windows installers with the same packaging scripts and uploads the Actions artifact `MC_L4-windows-unsigned`. It does not create a tag or a Release, and it does not sign or upload to MirrorChyan.
+
+已成功的构建是 https://github.com/sule99999/ok-wuthering-waves/actions/runs/42457584257 ，源码 `fe3ec5d180a49b6be17a9a93cd95afe4464f6326`。Artifact 下载页：https://github.com/sule99999/ok-wuthering-waves/actions/runs/42457584257/artifacts/13609253276 。保留 14 天。文件没有签名，Windows SmartScreen 可能拦截。
+
+The successful build is https://github.com/sule99999/ok-wuthering-waves/actions/runs/42457584257 from `fe3ec5d180a49b6be17a9a93cd95afe4464f6326`. The artifact page is https://github.com/sule99999/ok-wuthering-waves/actions/runs/42457584257/artifacts/13609253276. It is kept for 14 days. The files are unsigned, so Windows SmartScreen may block them.
+
+请安装 `MC_L4-win32-China-setup.exe`（约 1.12 GiB）或 `MC_L4-win32-Global-setup.exe`（约 1.12 GiB）。这两个安装包里已经有 Python 3.12：`data\apps\MC_L4\python\python.exe` 和 `pythonw.exe`，以及已安装的依赖。不需要另装 Python 或 Git 才能编译。约 4 MB 的 `MC_L4-win32-online-setup.exe` 不带这些运行库，第一次运行还要下载。启动器进程名是 `MC_L4.exe`。China 的界面进程是随包的 `pythonw.exe`，Global 是 `python.exe`。
+
+Install `MC_L4-win32-China-setup.exe` (about 1.12 GiB) or `MC_L4-win32-Global-setup.exe` (about 1.12 GiB). Both already contain Python 3.12 at `data\apps\MC_L4\python\python.exe` and `pythonw.exe`, plus the installed dependencies. A separate Python or Git install is not required to compile. The 4 MB `MC_L4-win32-online-setup.exe` does not contain that runtime and still downloads it on first launch. The launcher process is `MC_L4.exe`. China's UI process is the bundled `pythonw.exe`; Global uses `python.exe`.
+
+安装包里的 Git 仓库只有一个空的标记，完整历史和 `ok_templates` 没有打进去，否则 NSIS 会失败。第一次打开程序时，PyAppify 可能联网拉取仓库。这个 fork 没有版本 tag，所以这次拉取不应把已经打进安装包的 `MC_L4` 源码换回 master。
+
+The installer contains only a tiny Git marker. The full history and `ok_templates` are omitted because NSIS could not pack them. On first launch PyAppify may download the repository. This fork has no version tags, so that download should not replace the `MC_L4` source already in the installer.
 
 稳定版 tag（`v1.2.3` 这种）还会走 SignPath 签名。签名使用 workflow 里 ok-oldking 的 organization、project slug 和 `SIGNPATH_API_TOKEN`。这个 fork 没有这些 secret，不能替上游签名。预发布 tag 会跳过签名并继续打包。
 
