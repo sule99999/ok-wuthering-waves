@@ -19,7 +19,9 @@ const NEW_START = `        void (async () => {
 
 function patchLauncherStartup(buildDir) {
     const file = path.join(buildDir, "src", "App.tsx");
-    const text = fs.readFileSync(file, "utf8");
+    const original = fs.readFileSync(file, "utf8");
+    const newline = original.includes("\r\n") ? "\r\n" : "\n";
+    const text = original.replace(/\r\n/g, "\n");
     if (text.includes("await Promise.all(unlistenPromises);")) {
         return;
     }
@@ -28,7 +30,11 @@ function patchLauncherStartup(buildDir) {
             "App.tsx no longer starts load_app where the window can render before git fetch",
         );
     }
-    fs.writeFileSync(file, text.replace(OLD_START, NEW_START));
+    let patched = text.replace(OLD_START, NEW_START);
+    if (newline === "\r\n") {
+        patched = patched.replace(/\n/g, "\r\n");
+    }
+    fs.writeFileSync(file, patched);
 }
 
 module.exports = { patchLauncherStartup, OLD_START, NEW_START };
