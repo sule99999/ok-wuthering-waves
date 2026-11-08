@@ -63,8 +63,22 @@ jobs:
           $config = Get-Content -Raw config.py
           if ($config -notmatch "gui_title.: .MC_L4") { throw 'config.py lost the MC_L4 title' }
 
+      - name: Package from a short directory
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # PyAppify clones this repo under pyappify_dist while setting up a profile.
+          # ok_templates filenames are about 180 characters. The default
+          # D:\a\ok-wuthering-waves\... checkout makes those paths longer than
+          # the legacy Windows limit, and the launcher's git library stops.
+          New-Item -ItemType Directory -Force C:\b | Out-Null
+          & robocopy $env:GITHUB_WORKSPACE C:\b /E /XD .git /NFL /NDL /NJH /NJS /nc /ns /np
+          if ($LASTEXITCODE -ge 8) { throw "robocopy failed with exit $LASTEXITCODE" }
+
       - name: Package installers
         uses: ./.github/actions/package-launcher
+        env:
+          GITHUB_WORKSPACE: C:/b
         with:
           build_exe_only: 'false'
           add_version_name: 'false'
@@ -73,7 +87,8 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          Get-ChildItem pyappify_dist | ForEach-Object { '{0} {1}' -f $_.Length, $_.Name }
+          $dist = 'C:\b\pyappify_dist'
+          Get-ChildItem $dist | ForEach-Object { '{0} {1}' -f $_.Length, $_.Name }
           $required = @(
             'MC_L4-win32.zip',
             'MC_L4-win32-online-setup.exe',
@@ -81,15 +96,15 @@ jobs:
             'MC_L4-win32-Global-setup.exe'
           )
           foreach ($name in $required) {
-            $path = Join-Path 'pyappify_dist' $name
+            $path = Join-Path $dist $name
             if (-not (Test-Path $path)) { throw "Missing $path" }
           }
-          $china = Get-Item 'pyappify_dist\MC_L4-win32-China-setup.exe'
+          $china = Get-Item (Join-Path $dist 'MC_L4-win32-China-setup.exe')
           if ($china.Length -lt 30MB) {
             throw "China installer is $($china.Length) bytes, too small to contain the Python runtime"
           }
           $extract = Join-Path $env:RUNNER_TEMP 'launcher-zip'
-          Expand-Archive 'pyappify_dist\MC_L4-win32.zip' $extract
+          Expand-Archive (Join-Path $dist 'MC_L4-win32.zip') $extract
           $exe = Get-ChildItem $extract -Recurse -Filter 'MC_L4.exe' | Select-Object -First 1
           if (-not $exe) { throw 'MC_L4.exe was not inside MC_L4-win32.zip' }
           $exe.VersionInfo | Format-List ProductName, FileDescription, OriginalFilename, FileName | Out-String | Write-Host
@@ -105,7 +120,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: MC_L4-windows-unsigned
-          path: pyappify_dist/*
+          path: C:\b\pyappify_dist\*
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
@@ -116,7 +131,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $extract = Join-Path $env:RUNNER_TEMP 'launcher-smoke'
           New-Item -ItemType Directory -Force $extract | Out-Null
-          Expand-Archive 'pyappify_dist\MC_L4-win32.zip' $extract -Force
+          Expand-Archive 'C:\b\pyappify_dist\MC_L4-win32.zip' $extract -Force
           $exe = Get-ChildItem $extract -Recurse -Filter 'MC_L4.exe' | Select-Object -First 1
           $response = Join-Path $env:RUNNER_TEMP 'version-list.json'
           $stdout = Join-Path $env:RUNNER_TEMP 'mc-l4-stdout.txt'
