@@ -727,12 +727,13 @@ class BaseWWTask(BaseTask):
         if self.in_team_and_world():
             self.logged_in = True
             if self.in_realm():
-                # One exit attempt, then let ensure_main's own timeout keep polling.
-                # A nested teleport wait here would ignore time_out=10/30.
+                # Same controls and load budget as make_sure_in_world. The menu
+                # timeout on ensure_main does not shorten this exit wait.
                 if not getattr(self, '_realm_exit_attempted', False):
                     self._realm_exit_attempted = True
                     self._attempt_realm_exit()
-                return False
+                    self._wait_until_realm_left()
+                return not self.in_realm()
             return True
         if self.wait_login():
             return False
@@ -803,36 +804,44 @@ class BaseWWTask(BaseTask):
             0]  # and self.find_one(f'gray_book_button', threshold=0.7, canny_lower=50, canny_higher=150)
 
     def _attempt_realm_exit(self):
-        """Press Esc and confirm with either supported exit dialog. No long wait."""
+        """Press Esc and confirm with either supported exit control. No load wait."""
         self.send_key('esc', after_sleep=1)
         clicked = self.wait_click_feature(
             'gray_confirm_exit_button', relative_x=-1, raise_if_not_found=False,
             time_out=3, click_after_delay=0.5, threshold=0.7, after_sleep=1)
         if clicked:
             return
-        # Same confirm templates as esc_world_confirm. Missing both is an error,
-        # not a silent 120s wait.
+        # esc_world_confirm's dialog. Missing both controls is an error.
         self.click_dialog_right_button()
+
+    def _realm_exit_load_timeout(self):
+        """How long the screen may take to leave a domain after confirm.
+
+        DomainTask.make_sure_in_world waited ``teleport_timeout`` (100).
+        ensure_main reached the same situation through esc_world_confirm, which
+        waited 120. A caller's menu timeout (30 or 180) is not this budget.
+        """
+        if getattr(self, 'teleport_timeout', None):
+            return self.teleport_timeout
+        return 120
+
+    def _wait_until_realm_left(self):
+        # in_team() stays true inside a domain, so waiting on that alone returns immediately.
+        self.wait_until(
+            lambda: self.in_team()[0] and not self.in_realm(),
+            time_out=self._realm_exit_load_timeout(),
+            raise_if_not_found=True,
+        )
 
     def make_sure_in_world(self, time_out=None):
         """Leave a challenge domain, or reach the main screen.
 
-        Outside a domain this is ensure_main. Pass time_out to keep a caller's
-        previous ensure_main budget (Tacet and Daily use 180). Inside a domain,
-        the original DomainTask wait is teleport_timeout unless time_out is set.
+        ``time_out`` is only the open-world/menu wait passed to ensure_main.
+        Leaving a domain uses the exit/load budget from the original helper.
         """
         if self.in_realm():
-            self.send_key('esc', after_sleep=1)
-            self.wait_click_feature(
-                'gray_confirm_exit_button', relative_x=-1, raise_if_not_found=False,
-                time_out=3, click_after_delay=0.5, threshold=0.7, after_sleep=1)
-            budget = getattr(self, 'teleport_timeout', 120) if time_out is None else time_out
-            # in_team() stays true inside a domain, so waiting on that alone returns immediately.
-            self.wait_until(
-                lambda: self.in_team()[0] and not self.in_realm(),
-                time_out=budget,
-                raise_if_not_found=True,
-            )
+            self._attempt_realm_exit()
+            self._wait_until_realm_left()
             return
         if time_out is None:
             self.ensure_main()

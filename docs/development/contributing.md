@@ -95,6 +95,14 @@ In `.github/workflows/build.yml`, the job that pushes to ok-oldking update repos
 
 Whether every supported domain shows `illusive_realm_exit`, and whether that icon disappears after Esc while the team names remain, was not verified in the game. If the icon disappears first, the code treats the screen as already outside the domain. That outcome is not confirmed.
 
+离开副本的等待和打开主界面的等待不是同一个预算。原来的 `esc_world_confirm` 在点确认后最多等 120 秒；`DomainTask` 用自己的 `teleport_timeout`（100 秒）。Tacet/Daily 的 180 秒和梦魇的 30 秒只用于还没进副本时的 `ensure_main`。已经在副本里时，不会把 30 秒当成读条上限。
+
+The domain-load wait and the main-screen wait are different budgets. Original `esc_world_confirm` waited up to 120 seconds after the confirm click. `DomainTask` uses its own `teleport_timeout` (100 seconds). Tacet and Daily's 180 seconds, and Nightmare's 30 seconds, apply only to `ensure_main` before a domain is entered. A task already inside a domain does not use 30 seconds as the load limit.
+
+MirrorChyan 只有在上游同步 job 成功并且它报告稳定版时才会被触发。Fork 跳过同步时不会上传。发布说明在没有同步结果时使用 `github.ref_name`，而不是空白的上游 changelog。
+
+MirrorChyan is triggered only when the upstream sync job succeeds and reports a stable release. A fork run that skips sync does not upload. The release note uses `github.ref_name` when there is no sync result, instead of a blank upstream changelog.
+
 本地或 workflow 成功打包后，`pyappify_dist` 里会有：
 
 A successful package, locally or in the workflow, writes these files under `pyappify_dist`:

@@ -428,10 +428,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           body: |
-            ### 更新日志 ${{ needs.synchronize.outputs.start_tag }} -> ${{ needs.synchronize.outputs.end_tag }}:
-              ${{ needs.synchronize.outputs.changes }}
+            ### ${{ github.ref_name }}
+            ${{ needs.synchronize.result == 'success' && needs.synchronize.outputs.changes || 'Upstream update-repository sync did not run. MirrorChyan distribution stays off unless that sync reports a stable release.' }}
             ### Install from source
-              See the [source installation guide](https://github.com/ok-oldking/ok-wuthering-waves/blob/master/docs/development/contributing.md).
+              See docs/development/contributing.md in this repository.
           draft: false
           prerelease: ${{ needs.validate.outputs.is_release != 'true' }}
           files: pyappify_dist/*

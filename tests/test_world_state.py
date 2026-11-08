@@ -134,86 +134,118 @@ class WorldStateTest(unittest.TestCase):
         task.in_team = lambda: (True, 0, 3)
         self.assertTrue(task.in_world())
 
-    def _prepare_main_task(self):
-        from src.task.BaseWWTask import CannotFindException, og
+    def _clocked_task(self, realm_clears_at=None, task_class=None):
+        from src.task.BaseWWTask import og
 
         if getattr(og, "my_app", None) is None:
             og.my_app = types.SimpleNamespace(logged_in=False)
-        task = self._task()
+        task_class = task_class or BaseWWTask
+        task = task_class.__new__(task_class)
         task.tr = lambda message: message
         task.info_set = lambda *_args, **_kwargs: None
         task.sleep = lambda *_args, **_kwargs: None
         task.send_key = lambda *_args, **_kwargs: None
-        task.click = lambda *_args, **_kwargs: None
         task.back = lambda *_args, **_kwargs: None
         task.log_debug = lambda *_args, **_kwargs: None
+        task.logged_in = True
+        task.clock = 0
         task.budgets = []
+        task.clicks = []
+        task.in_team_and_world = lambda: True
+        task.in_team = lambda: (True, 0, 3)
+
+        def in_realm():
+            return realm_clears_at is None or task.clock < realm_clears_at
+
+        task.in_realm = in_realm
 
         def wait_until(predicate, time_out=0, raise_if_not_found=False, **_kwargs):
             task.budgets.append(time_out)
-            result = False
-            for _ in range(3):
+            started = task.clock
+            while task.clock - started <= time_out:
                 result = predicate()
                 if result:
                     return result
+                task.clock += 1
             if raise_if_not_found:
                 raise TimeoutError(f"timeout {time_out}")
             return None
 
         task.wait_until = wait_until
-        task.CannotFindException = CannotFindException
         return task
 
-    def test_missing_exit_confirm_raises_without_a_long_wait(self):
+    def test_missing_exit_confirm_raises_without_waiting_out_the_load(self):
         from src.task.BaseWWTask import CannotFindException
 
-        task = self._prepare_main_task()
-        task.logged_in = True
-        task.in_team_and_world = lambda: True
-        task.in_realm = lambda: True
-        task.in_team = lambda: (True, 0, 3)
+        task = self._clocked_task()
         task.wait_click_feature = lambda *_args, **_kwargs: None
         task.find_one = lambda *_args, **_kwargs: None
 
         with self.assertRaises(CannotFindException):
-            task.ensure_main(time_out=10)
+            task.make_sure_in_world(time_out=30)
 
-        self.assertEqual([10], task.budgets)
+        self.assertEqual([], [budget for budget in task.budgets if budget >= 100])
+        self.assertEqual(0, task.clock)
 
-    def test_dialog_confirm_is_used_when_domain_button_is_absent(self):
-        task = self._prepare_main_task()
-        task.logged_in = True
-        task.in_team_and_world = lambda: True
-        task.in_realm = lambda: True
-        task.in_team = lambda: (True, 0, 3)
+    def test_dialog_only_exit_survives_past_the_menu_timeout(self):
+        task = self._clocked_task(realm_clears_at=45)
         task.wait_click_feature = lambda *_args, **_kwargs: None
-        clicked = []
         task.find_one = lambda *_args, **_kwargs: object()
-        task.click = lambda *args, **kwargs: clicked.append(args)
+        task.click = lambda *args, **_kwargs: task.clicks.append(args)
 
-        with self.assertRaises(Exception) as caught:
-            task.ensure_main(time_out=10)
+        task.make_sure_in_world(time_out=30)
 
-        self.assertIn("Please start in game world and in team!", str(caught.exception))
-        self.assertTrue(clicked)
-        self.assertEqual([10], task.budgets)
+        self.assertTrue(task.clicks)
+        self.assertIn(120, task.budgets)
+        self.assertNotIn(30, task.budgets)
+        self.assertGreaterEqual(task.clock, 45)
+        self.assertLess(task.clock, 120)
+        self.assertFalse(task.in_realm())
 
-    def test_domain_button_is_accepted_and_outer_timeout_still_applies(self):
-        task = self._prepare_main_task()
-        task.logged_in = True
-        task.in_team_and_world = lambda: True
-        task.in_realm = lambda: True
-        task.in_team = lambda: (True, 0, 3)
-        clicks = []
-        task.wait_click_feature = lambda *_args, **_kwargs: clicks.append("gray") or object()
-        task.click_dialog_right_button = lambda: clicks.append("dialog")
+    def test_domain_button_does_not_also_require_the_dialog(self):
+        task = self._clocked_task(realm_clears_at=5)
+        task.wait_click_feature = lambda *_args, **_kwargs: task.clicks.append("gray") or object()
+        task.click_dialog_right_button = lambda: task.clicks.append("dialog")
 
-        with self.assertRaises(Exception) as caught:
-            task.ensure_main(time_out=10)
+        task.make_sure_in_world(time_out=30)
 
-        self.assertIn("Please start in game world and in team!", str(caught.exception))
-        self.assertEqual(["gray"], clicks)
-        self.assertEqual([10], task.budgets)
+        self.assertEqual(["gray"], task.clicks)
+        self.assertIn(120, task.budgets)
+
+    def test_failed_exit_is_bounded_by_the_load_budget_not_the_menu_timeout(self):
+        task = self._clocked_task()
+        task.wait_click_feature = lambda *_args, **_kwargs: object()
+
+        with self.assertRaises(TimeoutError) as caught:
+            task.make_sure_in_world(time_out=30)
+
+        self.assertIn("timeout 120", str(caught.exception))
+        self.assertGreaterEqual(task.clock, 120)
+        self.assertLess(task.clock, 140)
+
+    def test_ensure_main_domain_exit_is_not_cut_off_by_its_menu_timeout(self):
+        task = self._clocked_task(realm_clears_at=45)
+        task.wait_click_feature = lambda *_args, **_kwargs: None
+        task.find_one = lambda *_args, **_kwargs: object()
+        task.click = lambda *args, **_kwargs: task.clicks.append("dialog")
+
+        task.ensure_main(time_out=10)
+
+        self.assertIn("dialog", task.clicks)
+        self.assertIn(120, task.budgets)
+        self.assertGreaterEqual(task.clock, 45)
+        self.assertFalse(task.in_realm())
+
+    def test_domain_task_load_budget_stays_at_teleport_timeout(self):
+        task = self._clocked_task()
+        task.teleport_timeout = 100
+        task.wait_click_feature = lambda *_args, **_kwargs: object()
+
+        with self.assertRaises(TimeoutError) as caught:
+            task.make_sure_in_world()
+
+        self.assertIn("timeout 100", str(caught.exception))
+        self.assertNotIn(120, task.budgets)
 
     def test_explicit_timeout_reaches_ensure_main_outside_a_domain(self):
         task = self._task()
@@ -230,33 +262,13 @@ class WorldStateTest(unittest.TestCase):
 
         self.assertEqual(180, seen["time_out"])
 
-    def test_domain_wait_uses_teleport_timeout_and_reports_failure(self):
-        task = self._task()
-        task.teleport_timeout = 100
-        task.in_realm = lambda: True
-        task.in_team = lambda: (True, 0, 3)
-        task.send_key = lambda *_args, **_kwargs: None
-        task.wait_click_feature = lambda *_args, **_kwargs: None
-        task.tr = lambda message: message
-
-        def wait_until(predicate, time_out=0, raise_if_not_found=False, **_kwargs):
-            self.assertEqual(100, time_out)
-            self.assertTrue(raise_if_not_found)
-            self.assertFalse(predicate())
-            raise TimeoutError("still in domain")
-
-        task.wait_until = wait_until
-
-        with self.assertRaises(TimeoutError):
-            task.make_sure_in_world()
-
     def test_logged_out_startup_still_extends_the_main_wait(self):
-        task = self._prepare_main_task()
         from src.task.BaseWWTask import og
 
+        task = self._clocked_task(realm_clears_at=0)
         og.my_app.logged_in = False
+        task.logged_in = False
         task.in_team_and_world = lambda: False
-        task.in_realm = lambda: False
         task.wait_login = lambda: False
         task.handle_monthly_card = lambda: False
 
@@ -264,7 +276,8 @@ class WorldStateTest(unittest.TestCase):
             task.ensure_main(time_out=180)
 
         self.assertIn("Please start in game world and in team!", str(caught.exception))
-        self.assertEqual([600], task.budgets)
+        self.assertIn(600, task.budgets)
+        self.assertNotIn(180, task.budgets)
 
     def test_open_world_startup_still_uses_ensure_main(self):
         task = self._task()
@@ -276,7 +289,7 @@ class WorldStateTest(unittest.TestCase):
 
         self.assertEqual([True], called)
 
-    def test_tacet_daily_and_nightmare_keep_their_startup_budgets(self):
+    def test_startup_callers_use_the_real_exit_and_keep_menu_budgets(self):
         from src.task.DailyTask import DailyTask
         from src.task.NightmareNestTask import NightmareNestTask
         from src.task.TacetTask import TacetTask
@@ -285,34 +298,61 @@ class WorldStateTest(unittest.TestCase):
         original_parent = WWOneTimeTask.run
         WWOneTimeTask.run = lambda self: None
         try:
-            tacet = TacetTask.__new__(TacetTask)
-            tacet_calls = []
-            tacet.make_sure_in_world = lambda time_out=None: tacet_calls.append(("world", time_out))
-            tacet.wait_in_team_and_world = lambda esc=False: tacet_calls.append(("team", esc))
-            tacet.farm_tacet = lambda: tacet_calls.append("farm")
-            tacet.run()
-            self.assertEqual([("world", 180), ("team", True), "farm"], tacet_calls)
+            tacet = self._clocked_task(realm_clears_at=45, task_class=TacetTask)
+            tacet.wait_click_feature = lambda *_args, **_kwargs: None
+            tacet.find_one = lambda *_args, **_kwargs: object()
+            tacet.click = lambda *args, **_kwargs: tacet.clicks.append("dialog")
+            tacet.wait_in_team_and_world = lambda esc=False: tacet.clicks.append(("team", esc))
+            tacet.farm_tacet = lambda: tacet.clicks.append("farm")
+            TacetTask.run(tacet)
+            self.assertIn("dialog", tacet.clicks)
+            self.assertIn("farm", tacet.clicks)
+            self.assertIn(120, tacet.budgets)
+            self.assertGreaterEqual(tacet.clock, 45)
 
-            daily = DailyTask.__new__(DailyTask)
+            open_world = self._clocked_task(realm_clears_at=0, task_class=TacetTask)
+            seen = {}
+
+            def ensure_main(time_out=30, esc=True):
+                seen["time_out"] = time_out
+
+            open_world.ensure_main = ensure_main
+            open_world.in_realm = lambda: False
+            open_world.farm_tacet = lambda: None
+            open_world.wait_in_team_and_world = lambda esc=False: None
+            TacetTask.run(open_world)
+            self.assertEqual(180, seen["time_out"])
+
+            nest = self._clocked_task(realm_clears_at=45, task_class=NightmareNestTask)
+            nest._capture_mode = False
+            nest._capture_success = False
+            nest._unreachable_nests = set()
+            nest._nest_deaths = {}
+            nest.wait_click_feature = lambda *_args, **_kwargs: None
+            nest.find_one = lambda *_args, **_kwargs: object()
+            nest.click = lambda *args, **_kwargs: nest.clicks.append("dialog")
+            nest._init_queue = lambda: nest.clicks.append("queue")
+            nest.log_info = lambda *_args, **_kwargs: None
+            nest.get_nest_to_go = lambda: None
+            nest.ensure_main = lambda time_out=30, esc=True: nest.clicks.append(("menu", time_out))
+            NightmareNestTask.run(nest)
+            self.assertIn("dialog", nest.clicks)
+            self.assertIn("queue", nest.clicks)
+            self.assertIn(120, nest.budgets)
+            self.assertGreaterEqual(nest.clock, 45)
+
+            daily = self._clocked_task(realm_clears_at=45, task_class=DailyTask)
             daily.validate_additional_tasks = lambda: None
-            daily.make_sure_in_world = lambda time_out=None: (_ for _ in ()).throw(
-                RuntimeError(f"world:{time_out}")
-            )
+            daily.config = {}
+            daily.wait_click_feature = lambda *_args, **_kwargs: None
+            daily.find_one = lambda *_args, **_kwargs: object()
+            daily.click = lambda *args, **_kwargs: daily.clicks.append("dialog")
+            daily.open_daily = lambda: (_ for _ in ()).throw(RuntimeError("opened-after-exit"))
             with self.assertRaises(RuntimeError) as caught:
-                daily.run()
-            self.assertEqual("world:180", str(caught.exception))
-
-            for method_name in ("run", "run_capture_mode"):
-                nest = NightmareNestTask.__new__(NightmareNestTask)
-                nest._capture_mode = False
-                nest._capture_success = False
-                nest._unreachable_nests = set()
-                nest._nest_deaths = {}
-                nest.make_sure_in_world = lambda time_out=None: (_ for _ in ()).throw(
-                    RuntimeError(f"world:{time_out}")
-                )
-                with self.assertRaises(RuntimeError) as caught:
-                    getattr(nest, method_name)()
-                self.assertEqual("world:30", str(caught.exception))
+                DailyTask.run(daily)
+            self.assertEqual("opened-after-exit", str(caught.exception))
+            self.assertIn("dialog", daily.clicks)
+            self.assertIn(120, daily.budgets)
+            self.assertGreaterEqual(daily.clock, 45)
         finally:
             WWOneTimeTask.run = original_parent

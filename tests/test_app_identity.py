@@ -72,6 +72,8 @@ class AppIdentityTest(unittest.TestCase):
         self.assertNotIn("ok-ww-win32-China-setup-", mirror)
         self.assertIn("owner: ${{ github.repository_owner }}", mirror)
         self.assertIn("needs.synchronize.outputs.is_release == 'true'", workflow)
+        self.assertIn("### ${{ github.ref_name }}", workflow)
+        self.assertIn("Upstream update-repository sync did not run", workflow)
         self.assertIn("github.repository == 'ok-oldking/ok-wuthering-waves'", workflow)
         self.assertIn("needs.synchronize.result == 'skipped'", workflow)
         self.assertIn("SIGN_BUILD: ${{ needs.validate.outputs.is_release }}", workflow)
