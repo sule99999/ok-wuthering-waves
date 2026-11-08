@@ -208,8 +208,10 @@ jobs:
           $logDeadline = (Get-Date).AddSeconds(90)
           $log = $null
           do {
-            $log = Get-ChildItem -Path $dest -Recurse -Filter 'app*.log' -ErrorAction SilentlyContinue |
-              Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            $log = @(
+              Get-ChildItem -Path $dest -Recurse -Filter 'app*.log' -ErrorAction SilentlyContinue
+              Get-Item -LiteralPath (Join-Path $dest 'stdout.txt') -ErrorAction SilentlyContinue
+            ) | Where-Object { $_ -and $_.Length -gt 0 } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
             if ($log -and (Select-String -LiteralPath $log.FullName -Pattern 'First load, checking update' -Quiet)) {
               break
             }

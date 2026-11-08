@@ -172,9 +172,6 @@ function sanitizePackagedAppMetadata(appDistDir, appName) {
     app.current_version_missing = false;
     app.update_target_version = null;
     app.update_error = null;
-    if (app.update_state && app.update_state !== "Idle") {
-        app.update_state = "Idle";
-    }
     fs.writeFileSync(configPath, JSON.stringify(app, null, 2));
 }
 

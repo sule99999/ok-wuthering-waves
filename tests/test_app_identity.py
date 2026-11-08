@@ -257,7 +257,7 @@ class AppIdentityTest(unittest.TestCase):
             app_json = root / "dist" / "data" / "apps" / "MC_L4" / "app.json"
             app_json.write_text(
                 '{"name":"MC_L4","current_version":null,"available_versions":["v3.7.19"],'
-                '"current_profile":"Global","profiles":[{"name":"China","git_url":"https://cnb.cool/ok-oldking/ok-ww-update2.git"},'
+                '"update_state":"idle","current_profile":"Global","profiles":[{"name":"China","git_url":"https://cnb.cool/ok-oldking/ok-ww-update2.git"},'
                 '{"name":"Global","git_url":"https://github.com/ok-oldking/ok-ww-update.git","main_script":"main.py"}]}',
                 encoding="utf-8",
             )
@@ -289,6 +289,7 @@ class AppIdentityTest(unittest.TestCase):
             self.assertEqual("Global", saved["current_profile"])
             self.assertEqual(str(fixture), saved["profiles"][0]["git_url"])
             self.assertEqual(["Global"], [profile["name"] for profile in saved["profiles"]])
+            self.assertEqual("idle", saved["update_state"])
             (packaged / "ok_templates").mkdir()
             (packaged / "ok_templates" / "sample.jpg").write_bytes(b"jpg")
             (packaged / "tests" / "images").mkdir(parents=True)
