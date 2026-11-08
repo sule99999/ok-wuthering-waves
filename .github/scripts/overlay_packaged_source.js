@@ -1,3 +1,4 @@
+const { execFileSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
@@ -74,10 +75,30 @@ function overlayForkSource(appDistDir, appName, workspace = process.env.GITHUB_W
             }
         }
     }
+    slimProfileClone(appDistDir, appName);
+}
+
+function slimProfileClone(appDistDir, appName) {
+    // Setup clones the whole repository, including .git and ok_templates.
+    // NSIS then fails with "error mmapping datablock" on that payload.
+    // The running app uses working/, which this overlay already replaced.
+    const repo = path.join(appDistDir, "data", "apps", appName, "repo");
+    if (!fs.existsSync(repo)) {
+        return;
+    }
+    fs.rmSync(repo, { recursive: true, force: true });
+    fs.mkdirSync(repo, { recursive: true });
+    const git = process.platform === "win32" ? "git.exe" : "git";
+    execFileSync(git, ["init"], { cwd: repo });
+    execFileSync(git, [
+        "remote", "add", "origin",
+        "https://github.com/sule99999/ok-wuthering-waves.git",
+    ], { cwd: repo });
 }
 
 module.exports = {
     SOURCE_PATHS,
     VENDORED_REQUIREMENTS,
     overlayForkSource,
+    slimProfileClone,
 };

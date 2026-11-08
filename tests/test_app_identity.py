@@ -235,6 +235,20 @@ class AppIdentityTest(unittest.TestCase):
             self.assertEqual("fork\n", (packaged / "src" / "task.py").read_text(encoding="utf-8"))
             self.assertIn("MC_L4", (packaged / "config.py").read_text(encoding="utf-8"))
             self.assertNotIn("ok-ww-update", (packaged / "pyappify.yml").read_text(encoding="utf-8"))
+            bulky = root / "dist" / "data" / "apps" / "MC_L4" / "repo"
+            (bulky / "ok_templates").mkdir(parents=True)
+            (bulky / "ok_templates" / "huge.jpg").write_bytes(b"x" * 32)
+            (bulky / ".git").mkdir()
+            (bulky / ".git" / "HEAD").write_text("ref: refs/heads/master\n", encoding="utf-8")
+            subprocess.run(
+                [node, str(probe), str(ROOT / ".github" / "scripts" / "overlay_packaged_source.js"), str(root / "dist"), str(workspace)],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            self.assertFalse((bulky / "ok_templates").exists())
+            self.assertTrue((bulky / ".git" / "HEAD").is_file())
+            self.assertLess((bulky / ".git" / "HEAD").stat().st_size, 100)
 
             inlined = root / "inlined"
             inlined_src = inlined / "src"
