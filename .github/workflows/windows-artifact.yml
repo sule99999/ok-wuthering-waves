@@ -292,7 +292,10 @@ jobs:
             throw 'GUI screenshot is missing or empty'
           }
           Write-Host "process=$($proc.Id) exited=$($proc.HasExited)"
-          if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+          if (-not $proc.HasExited) {
+            Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+          }
+          exit 0
 
       - name: Upload GUI smoke screenshot
         uses: actions/upload-artifact@v4
