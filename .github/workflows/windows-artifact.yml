@@ -173,6 +173,66 @@ jobs:
           if (-not ($listing | Select-String -SimpleMatch -Pattern 'python.exe' -Quiet)) {
             throw 'Global installer does not contain the bundled Python runtime'
           }
+          if (-not ($listing | Select-String -SimpleMatch -Pattern '.git/HEAD' -Quiet)) {
+            throw 'Global installer does not contain an openable git repository'
+          }
+
+      - name: Install and open the Global launcher
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dest = 'D:\mcl4smoke'
+          $installer = 'D:\b\pyappify_dist\MC_L4-win32-Global-setup.exe'
+          cmd /c "`"$installer`" /S /D=$dest"
+          $deadline = (Get-Date).AddMinutes(3)
+          $installed = Join-Path $dest 'MC_L4.exe'
+          while (-not (Test-Path $installed)) {
+            if ((Get-Date) -gt $deadline) { throw "Installer did not produce $installed" }
+            Start-Sleep -Seconds 2
+          }
+          $proc = Start-Process -FilePath $installed -WorkingDirectory $dest -PassThru
+          $logDeadline = (Get-Date).AddSeconds(90)
+          $log = $null
+          do {
+            $log = Get-ChildItem -Path $dest -Recurse -Filter 'app*.log' -ErrorAction SilentlyContinue |
+              Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            if ($log -and (Select-String -LiteralPath $log.FullName -Pattern 'First load, checking update' -Quiet)) {
+              break
+            }
+            if ($proc.HasExited) { break }
+            Start-Sleep -Seconds 2
+          } while ((Get-Date) -lt $logDeadline)
+          if ($log) { Get-Content -LiteralPath $log.FullName | Write-Host }
+          if (-not $log) { throw 'Launcher did not write a startup log' }
+          $text = Get-Content -LiteralPath $log.FullName -Raw
+          if ($text -match 'not a valid git repository') {
+            throw 'Startup still rejects the packaged repository and reclones'
+          }
+          if ($text -match 'Attempting to clone') {
+            throw 'Startup started a full clone instead of opening the packaged repository'
+          }
+          if ($text -notmatch 'First load, checking update') {
+            throw 'Launcher did not finish the startup load'
+          }
+          if ($text -notmatch 'running with tauri ui') {
+            throw 'Launcher did not start the Tauri window'
+          }
+          $shot = Join-Path $dest 'gui-smoke.png'
+          try {
+            Add-Type -AssemblyName System.Windows.Forms,System.Drawing
+            $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+            $bitmap = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
+            $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+            $graphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+            $bitmap.Save($shot, [System.Drawing.Imaging.ImageFormat]::Png)
+            $graphics.Dispose()
+            $bitmap.Dispose()
+            Write-Host "screenshot=$shot bytes=$((Get-Item $shot).Length)"
+          } catch {
+            Write-Host "screenshot was not captured: $($_.Exception.Message)"
+          }
+          Write-Host "process=$($proc.Id) exited=$($proc.HasExited)"
+          if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
 
       - name: Upload unsigned installers
         uses: actions/upload-artifact@v4
@@ -182,6 +242,14 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
+
+      - name: Upload GUI smoke screenshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: MC_L4-gui-smoke
+          path: D:\mcl4smoke\gui-smoke.png
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Smoke-test the launcher without starting the game
         shell: pwsh

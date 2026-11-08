@@ -5,6 +5,7 @@ These checks read the source files directly so they do not import ok-script.
 
 import ast
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -237,20 +238,57 @@ class AppIdentityTest(unittest.TestCase):
             self.assertEqual("fork\n", (packaged / "src" / "task.py").read_text(encoding="utf-8"))
             self.assertIn("MC_L4", (packaged / "config.py").read_text(encoding="utf-8"))
             self.assertNotIn("ok-ww-update", (packaged / "pyappify.yml").read_text(encoding="utf-8"))
+            fixture = root / "fixture-repo"
+            fixture.mkdir()
+            (fixture / "README.md").write_text("fixture\n", encoding="utf-8")
+            subprocess.run(["git", "init"], cwd=fixture, check=True, capture_output=True)
+            subprocess.run(["git", "add", "README.md"], cwd=fixture, check=True, capture_output=True)
+            subprocess.run(
+                ["git", "-c", "user.email=test@example.com", "-c", "user.name=test", "commit", "-m", "fixture"],
+                cwd=fixture,
+                check=True,
+                capture_output=True,
+            )
             bulky = root / "dist" / "data" / "apps" / "MC_L4" / "repo"
             (bulky / "ok_templates").mkdir(parents=True)
             (bulky / "ok_templates" / "huge.jpg").write_bytes(b"x" * 32)
             (bulky / ".git").mkdir()
             (bulky / ".git" / "HEAD").write_text("ref: refs/heads/master\n", encoding="utf-8")
+            app_json = root / "dist" / "data" / "apps" / "MC_L4" / "app.json"
+            app_json.write_text(
+                '{"name":"MC_L4","current_version":null,"available_versions":["v3.7.19"],'
+                '"current_profile":"Global","profiles":[{"name":"China","git_url":"https://cnb.cool/ok-oldking/ok-ww-update2.git"},'
+                '{"name":"Global","git_url":"https://github.com/ok-oldking/ok-ww-update.git","main_script":"main.py"}]}',
+                encoding="utf-8",
+            )
+            overlay_env = os.environ.copy()
+            overlay_env["MC_L4_PROFILE_GIT_URL"] = str(fixture)
             subprocess.run(
                 [node, str(probe), str(ROOT / ".github" / "scripts" / "overlay_packaged_source.js"), str(root / "dist"), str(workspace)],
                 check=True,
                 capture_output=True,
                 text=True,
+                env=overlay_env,
             )
             self.assertFalse((bulky / "ok_templates").exists())
-            self.assertTrue((bulky / ".git" / "HEAD").is_file())
-            self.assertLess((bulky / ".git" / "HEAD").stat().st_size, 100)
+            self.assertEqual(
+                "fixture\n",
+                (bulky / "README.md").read_text(encoding="utf-8"),
+            )
+            import os as _os
+            empty_removed = subprocess.run(
+                ["git", "status", "-sb"],
+                cwd=bulky,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            self.assertIn("##", empty_removed.stdout)
+            saved = json.loads(app_json.read_text(encoding="utf-8"))
+            self.assertEqual([], saved["available_versions"])
+            self.assertEqual("Global", saved["current_profile"])
+            self.assertEqual(str(fixture), saved["profiles"][0]["git_url"])
+            self.assertEqual(["Global"], [profile["name"] for profile in saved["profiles"]])
             (packaged / "ok_templates").mkdir()
             (packaged / "ok_templates" / "sample.jpg").write_bytes(b"jpg")
             (packaged / "tests" / "images").mkdir(parents=True)
@@ -263,6 +301,7 @@ class AppIdentityTest(unittest.TestCase):
                 check=True,
                 capture_output=True,
                 text=True,
+                env=overlay_env,
             )
             self.assertFalse((packaged / "ok_templates").exists())
             self.assertFalse((packaged / "tests").exists())

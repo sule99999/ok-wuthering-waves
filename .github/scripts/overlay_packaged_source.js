@@ -77,6 +77,7 @@ function overlayForkSource(appDistDir, appName, workspace = process.env.GITHUB_W
     }
     slimProfileClone(appDistDir, appName);
     removeNonRuntimeWorkingFiles(working);
+    sanitizePackagedAppMetadata(appDistDir, appName);
 }
 
 // The profile checkout copies the whole repository into working/. These paths are
@@ -100,22 +101,81 @@ function removeNonRuntimeWorkingFiles(working) {
     }
 }
 
+const PROFILE_GIT_URL = process.env.MC_L4_PROFILE_GIT_URL
+    || "https://github.com/sule99999/ok-wuthering-waves.git";
+
+function removeEmptyDirectories(directory) {
+    if (!fs.existsSync(directory)) {
+        return;
+    }
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+        if (!entry.isDirectory()) {
+            continue;
+        }
+        const child = path.join(directory, entry.name);
+        removeEmptyDirectories(child);
+        if (fs.readdirSync(child).length === 0) {
+            fs.rmdirSync(child);
+        }
+    }
+}
+
+function replaceProfileRepository(repo, gitUrl = PROFILE_GIT_URL) {
+    // `git init` leaves objects/ and refs/ empty. NSIS omits empty directories,
+    // and the installed folder then fails `git`/`libgit2` open. Startup deletes
+    // it and clones the whole fork before the launcher can finish loading.
+    // A depth-1 clone has real objects and refs, so that open succeeds.
+    fs.rmSync(repo, { recursive: true, force: true });
+    const git = process.platform === "win32" ? "git.exe" : "git";
+    execFileSync(git, [
+        "clone", "--depth", "1", "--filter=blob:none", "--sparse", gitUrl, repo,
+    ], { stdio: "inherit" });
+    execFileSync(git, [
+        "sparse-checkout", "set", "--no-cone", "/*", "!/ok_templates/", "!/tests/",
+    ], { cwd: repo, stdio: "inherit" });
+    removeEmptyDirectories(path.join(repo, ".git"));
+    execFileSync(git, ["status", "-sb"], { cwd: repo, stdio: "inherit" });
+}
+
 function slimProfileClone(appDistDir, appName) {
-    // Setup clones the whole repository, including .git and ok_templates.
-    // NSIS then fails with "error mmapping datablock" on that payload.
-    // The running app uses working/, which this overlay already replaced.
     const repo = path.join(appDistDir, "data", "apps", appName, "repo");
     if (!fs.existsSync(repo)) {
         return;
     }
-    fs.rmSync(repo, { recursive: true, force: true });
-    fs.mkdirSync(repo, { recursive: true });
-    const git = process.platform === "win32" ? "git.exe" : "git";
-    execFileSync(git, ["init"], { cwd: repo });
-    execFileSync(git, [
-        "remote", "add", "origin",
-        "https://github.com/sule99999/ok-wuthering-waves.git",
-    ], { cwd: repo });
+    replaceProfileRepository(repo);
+}
+
+function sanitizePackagedAppMetadata(appDistDir, appName) {
+    // Setup saves app.json before this overlay. That copy can still list the
+    // upstream update repositories and their version tags. The launcher reads
+    // it before the working pyappify.yml.
+    const configPath = path.join(appDistDir, "data", "apps", appName, "app.json");
+    if (!fs.existsSync(configPath)) {
+        return;
+    }
+    const app = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    const globalProfile = (app.profiles || []).find((profile) => profile.name === "Global")
+        || (app.profiles || [])[0]
+        || {};
+    app.profiles = [{
+        ...globalProfile,
+        name: "Global",
+        git_url: PROFILE_GIT_URL,
+        main_script: globalProfile.main_script || "main.py",
+        requirements: globalProfile.requirements || "requirements.txt",
+        requires_python: globalProfile.requires_python || "3.12",
+        pip_args: globalProfile.pip_args || "--no-deps",
+    }];
+    app.current_profile = "Global";
+    app.available_versions = [];
+    app.current_version = null;
+    app.current_version_missing = false;
+    app.update_target_version = null;
+    app.update_error = null;
+    if (app.update_state && app.update_state !== "Idle") {
+        app.update_state = "Idle";
+    }
+    fs.writeFileSync(configPath, JSON.stringify(app, null, 2));
 }
 
 module.exports = {
@@ -123,5 +183,9 @@ module.exports = {
     VENDORED_REQUIREMENTS,
     overlayForkSource,
     slimProfileClone,
+    replaceProfileRepository,
+    sanitizePackagedAppMetadata,
+    removeEmptyDirectories,
+    PROFILE_GIT_URL,
     NON_RUNTIME_WORKING_PATHS,
 };
