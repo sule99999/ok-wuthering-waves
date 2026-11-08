@@ -210,17 +210,15 @@ jobs:
 
       - name: Reuse base executable
         id: reuse_executable
-        uses: ok-oldking/pyappify-action@master
+        uses: ./.github/actions/package-launcher
         if: env.BUILD_EXE == 'true' && env.USE_RELEASE != ''
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
         with:
           use_release: ${{ env.USE_RELEASE }}
           add_version_name: true
 
       - name: Build portable executable
         id: build_executable
-        uses: ok-oldking/pyappify-action@master
+        uses: ./.github/actions/package-launcher
         if: env.BUILD_EXE == 'true' && env.USE_RELEASE == ''
         with:
           build_exe_only: ${{ env.SIGN_BUILD == 'true' }}
@@ -301,7 +299,7 @@ jobs:
 
       - name: Build installers
         id: build_installers
-        uses: ok-oldking/pyappify-action@master
+        uses: ./.github/actions/package-launcher
         if: env.BUILD_EXE == 'true' && env.SIGN_BUILD == 'true'
         with:
           add_version_name: true
@@ -312,7 +310,7 @@ jobs:
         if: env.BUILD_EXE == 'true' && env.SIGN_BUILD == 'true'
         with:
           name: china-installer-to-sign
-          path: pyappify_dist/ok-ww-win32-China-setup-*.exe
+          path: pyappify_dist/MC_L4-win32-China-setup-*.exe
           if-no-files-found: error
           retention-days: 1
 

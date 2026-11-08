@@ -1,0 +1,52 @@
+name: Package launcher
+description: Package this app with PyAppify, keeping pyappify.yml name as the executable name.
+
+inputs:
+  app_version:
+    description: Exact application tag to prepare before installing dependencies.
+    required: false
+    default: ""
+  version:
+    description: PyAppify tag to build. Defaults to the latest tag.
+    required: false
+    default: ""
+  use_release:
+    description: GitHub release API URL whose launcher archive should be reused.
+    required: false
+    default: ""
+  build_exe_only:
+    description: Build only the portable executable.
+    required: false
+    default: "false"
+  add_version_name:
+    description: Append the application version to installer file names.
+    required: false
+    default: "false"
+
+outputs:
+  dist-path:
+    description: Directory containing the packaged bundles.
+    value: ${{ steps.package.outputs.dist-path }}
+  pyappify-assets:
+    description: Files produced for the release.
+    value: ${{ steps.package.outputs.pyappify-assets }}
+  exe-path:
+    description: Path to the portable executable.
+    value: ${{ steps.package.outputs.exe-path }}
+  exe-folder:
+    description: Directory containing the portable executable.
+    value: ${{ steps.package.outputs.exe-folder }}
+
+runs:
+  using: composite
+  steps:
+    - id: package
+      shell: bash
+      env:
+        INPUT_APP_VERSION: ${{ inputs.app_version }}
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_USE_RELEASE: ${{ inputs.use_release }}
+        INPUT_BUILD_EXE_ONLY: ${{ inputs.build_exe_only }}
+        INPUT_ADD_VERSION_NAME: ${{ inputs.add_version_name }}
+        GITHUB_TOKEN: ${{ github.token }}
+      run: bash "$GITHUB_WORKSPACE/.github/scripts/run_pyappify_action.sh"

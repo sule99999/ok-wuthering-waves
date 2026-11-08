@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Run ok-oldking/pyappify-action from source after correcting the Tauri bundle
+# identifier. Product name and executable name still come from pyappify.yml.
+set -euo pipefail
+
+if [[ -z "${RUNNER_TEMP:-}" || -z "${GITHUB_WORKSPACE:-}" ]]; then
+  echo "This script is meant to run inside GitHub Actions." >&2
+  exit 1
+fi
+
+python_bin="python3"
+if ! command -v "$python_bin" >/dev/null 2>&1; then
+  python_bin="python"
+fi
+
+dest="${RUNNER_TEMP}/pyappify-action"
+rm -rf "$dest"
+git clone --depth 1 https://github.com/ok-oldking/pyappify-action.git "$dest"
+"$python_bin" "${GITHUB_WORKSPACE}/.github/scripts/patch_pyappify_build_config.py" \
+  "${dest}/build-config.js"
+
+(
+  cd "$dest"
+  npm ci --omit=dev --ignore-scripts
+)
+cd "$GITHUB_WORKSPACE"
+node "${dest}/index.js"
