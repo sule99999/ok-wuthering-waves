@@ -179,6 +179,15 @@ jobs:
             throw 'Global installer does not contain an openable git repository'
           }
 
+      - name: Upload unsigned installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: MC_L4-win32-Global
+          path: D:\b\pyappify_dist\MC_L4-win32-Global-setup.exe
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
       - name: Install and open the Global launcher
         shell: pwsh
         run: |
@@ -192,7 +201,10 @@ jobs:
             if ((Get-Date) -gt $deadline) { throw "Installer did not produce $installed" }
             Start-Sleep -Seconds 2
           }
-          $proc = Start-Process -FilePath $installed -WorkingDirectory $dest -PassThru
+          $stdout = Join-Path $dest 'stdout.txt'
+          $stderr = Join-Path $dest 'stderr.txt'
+          $proc = Start-Process -FilePath $installed -WorkingDirectory $dest -PassThru `
+            -RedirectStandardOutput $stdout -RedirectStandardError $stderr
           $logDeadline = (Get-Date).AddSeconds(90)
           $log = $null
           do {
@@ -205,6 +217,11 @@ jobs:
             Start-Sleep -Seconds 2
           } while ((Get-Date) -lt $logDeadline)
           if ($log) { Get-Content -LiteralPath $log.FullName | Write-Host }
+          Write-Host "process=$($proc.Id) exited=$($proc.HasExited) exitcode=$($proc.ExitCode)"
+          Get-ChildItem -Path $dest -Recurse -ErrorAction SilentlyContinue |
+            Select-Object -First 80 FullName, Length | Format-Table -AutoSize | Out-String | Write-Host
+          if (Test-Path $stdout) { Write-Host '--- stdout ---'; Get-Content $stdout | Write-Host }
+          if (Test-Path $stderr) { Write-Host '--- stderr ---'; Get-Content $stderr | Write-Host }
           if (-not $log) { throw 'Launcher did not write a startup log' }
           $text = Get-Content -LiteralPath $log.FullName -Raw
           if ($text -match 'not a valid git repository') {
@@ -235,15 +252,6 @@ jobs:
           }
           Write-Host "process=$($proc.Id) exited=$($proc.HasExited)"
           if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
-
-      - name: Upload unsigned installers
-        uses: actions/upload-artifact@v4
-        with:
-          name: MC_L4-win32-Global
-          path: D:\b\pyappify_dist\MC_L4-win32-Global-setup.exe
-          if-no-files-found: error
-          retention-days: 14
-          compression-level: 0
 
       - name: Upload GUI smoke screenshot
         uses: actions/upload-artifact@v4
