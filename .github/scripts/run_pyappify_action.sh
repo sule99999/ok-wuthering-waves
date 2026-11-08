@@ -27,5 +27,7 @@ cp "${GITHUB_WORKSPACE}/.github/scripts/overlay_packaged_source.js" \
   cd "$dest"
   npm ci --omit=dev --ignore-scripts
 )
-cd "$GITHUB_WORKSPACE"
+# PACKAGE_ROOT lets the profile clone use a short directory. The default
+# runner path plus ok_templates filenames exceeds the legacy Windows limit.
+cd "${PACKAGE_ROOT:-$GITHUB_WORKSPACE}"
 node "${dest}/index.js"

@@ -81,7 +81,7 @@ jobs:
       - name: Package installers
         uses: ./.github/actions/package-launcher
         env:
-          GITHUB_WORKSPACE: C:/b
+          PACKAGE_ROOT: C:/b
         with:
           build_exe_only: 'false'
           add_version_name: 'false'
