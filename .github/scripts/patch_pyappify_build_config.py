@@ -18,6 +18,8 @@ SETUP_CALL = (
 OVERLAY_CALL = (
     "require('./overlay_packaged_source').overlayForkSource(appDistDir, appName);"
 )
+STARTUP_ANCHOR = "await setupPnpm();"
+STARTUP_CALL = "require('./patch_launcher_startup').patchLauncherStartup(buildDir);"
 
 
 def patch_build_config(text):
@@ -43,25 +45,45 @@ def patch_build_config(text):
     )
 
 
-def patch_action_index(text):
-    """Copy this checkout into each profile after PyAppify clones its git tag."""
-    newline = "\r\n" if "\r\n" in text else "\n"
-    normalized = text.replace("\r\n", "\n")
-    if OVERLAY_CALL in normalized:
-        return text
-    lines = normalized.split("\n")
+def _insert_after(lines, anchor, insertion):
     for index, line in enumerate(lines):
-        if line.strip() != SETUP_CALL:
+        if line.strip() != anchor:
             continue
         indent = line[: len(line) - len(line.lstrip(" "))]
-        lines.insert(index + 1, f"{indent}{OVERLAY_CALL}")
-        patched = "\n".join(lines)
-        if newline == "\r\n":
-            patched = patched.replace("\n", "\r\n")
-        return patched
-    raise ValueError(
-        "pyappify-action index.js no longer calls setupProfile where fork source can be overlaid"
-    )
+        lines.insert(index + 1, f"{indent}{insertion}")
+        return True
+    return False
+
+
+def _insert_before(lines, anchor, insertion):
+    for index, line in enumerate(lines):
+        if line.strip() != anchor:
+            continue
+        indent = line[: len(line) - len(line.lstrip(" "))]
+        lines.insert(index, f"{indent}{insertion}")
+        return True
+    return False
+
+
+def patch_action_index(text):
+    """Copy this checkout into each profile and show the launcher before git fetch."""
+    newline = "\r\n" if "\r\n" in text else "\n"
+    normalized = text.replace("\r\n", "\n")
+    lines = normalized.split("\n")
+    if OVERLAY_CALL not in normalized:
+        if not _insert_after(lines, SETUP_CALL, OVERLAY_CALL):
+            raise ValueError(
+                "pyappify-action index.js no longer calls setupProfile where fork source can be overlaid"
+            )
+    if STARTUP_CALL not in "\n".join(lines) and STARTUP_ANCHOR in normalized:
+        if not _insert_before(lines, STARTUP_ANCHOR, STARTUP_CALL):
+            raise ValueError(
+                "pyappify-action index.js no longer prepares pyappify where launcher startup can be patched"
+            )
+    patched = "\n".join(lines)
+    if newline == "\r\n":
+        patched = patched.replace("\n", "\r\n")
+    return patched
 
 
 def main(argv):

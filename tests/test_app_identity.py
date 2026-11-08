@@ -195,6 +195,15 @@ class AppIdentityTest(unittest.TestCase):
             "await setupProfile(exec.exec, exeDestPath, profile.name, appName, appDistDir, setupVersion);\n"
         )
         self.assertIn("overlayForkSource(appDistDir, appName)", patched)
+        startup = patcher.patch_action_index(
+            "await setupProfile(exec.exec, exeDestPath, profile.name, appName, appDistDir, setupVersion);\n"
+            "await setupPnpm();\n"
+        )
+        self.assertIn("patchLauncherStartup(buildDir)", startup)
+        self.assertLess(
+            startup.index("patchLauncherStartup(buildDir)"),
+            startup.index("await setupPnpm();"),
+        )
         self.assertEqual(patched, patcher.patch_action_index(patched))
 
         node = shutil.which("node")

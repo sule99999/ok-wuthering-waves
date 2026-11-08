@@ -214,6 +214,17 @@ jobs:
             Start-Sleep -Seconds 2
           }
           Write-Host "python.exe size=$lastSize"
+          $kept = Join-Path $dest 'data\config\user-kept.txt'
+          Set-Content -LiteralPath $kept -Value 'keep-this-user-file' -Encoding utf8
+          $appJson = Join-Path $dest 'data\apps\MC_L4\app.json'
+          $stale = Get-Content -Raw -LiteralPath $appJson | ConvertFrom-Json
+          $stale.available_versions = @('v3.7.19')
+          $stale.current_version = $null
+          $stale.profiles = @(
+            @{ name = 'China'; main_script = 'main.py'; admin = $true; use_pythonw = $true; show_add_defender = $true; requirements = 'requirements.txt'; python_path = ''; git_url = 'https://cnb.cool/ok-oldking/ok-ww-update2.git'; requires_python = '3.12'; pip_args = '--no-deps' },
+            @{ name = 'Global'; main_script = 'main.py'; admin = $true; use_pythonw = $true; show_add_defender = $true; requirements = 'requirements.txt'; python_path = ''; git_url = 'https://github.com/ok-oldking/ok-ww-update.git'; requires_python = '3.12'; pip_args = '--no-deps' }
+          )
+          $stale | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $appJson -Encoding utf8
           $stdout = Join-Path $dest 'stdout.txt'
           $stderr = Join-Path $dest 'stderr.txt'
           $proc = Start-Process -FilePath $installed -WorkingDirectory $dest -PassThru `
@@ -225,7 +236,7 @@ jobs:
               Get-ChildItem -Path $dest -Recurse -Filter 'app*.log' -ErrorAction SilentlyContinue
               Get-Item -LiteralPath (Join-Path $dest 'stdout.txt') -ErrorAction SilentlyContinue
             ) | Where-Object { $_ -and $_.Length -gt 0 } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-            if ($log -and (Select-String -LiteralPath $log.FullName -Pattern 'First load, checking update' -Quiet)) {
+            if ($log -and (Select-String -LiteralPath $log.FullName -Pattern 'Repository already exists' -Quiet)) {
               break
             }
             if ($proc.HasExited) { break }
@@ -248,11 +259,20 @@ jobs:
           if ($text -match 'Deleting app artifacts') {
             throw 'Startup deleted the installed app because Python was not found'
           }
-          if ($text -notmatch 'First load, checking update') {
-            throw 'Launcher did not finish the startup load'
+          if ($text -notmatch 'Finished loading app details\. MC_L4 true') {
+            throw 'Launcher did not load the installed app before git fetch'
+          }
+          if ($text -notmatch 'Repository already exists') {
+            throw 'Launcher did not open the packaged repository'
           }
           if ($text -notmatch 'running with tauri ui') {
             throw 'Launcher did not start the Tauri window'
+          }
+          if ((Get-Content -LiteralPath $kept -Raw) -ne "keep-this-user-file`n" -and (Get-Content -LiteralPath $kept -Raw) -notmatch 'keep-this-user-file') {
+            throw 'Startup removed the preserved user file'
+          }
+          if (-not (Test-Path (Join-Path $dest 'data\apps\MC_L4\working\config.py'))) {
+            throw 'Startup removed the installed application files'
           }
           $shot = Join-Path $dest 'gui-smoke.png'
           try {
@@ -266,7 +286,10 @@ jobs:
             $bitmap.Dispose()
             Write-Host "screenshot=$shot bytes=$((Get-Item $shot).Length)"
           } catch {
-            Write-Host "screenshot was not captured: $($_.Exception.Message)"
+            throw "screenshot was not captured: $($_.Exception.Message)"
+          }
+          if (-not (Test-Path $shot) -or (Get-Item $shot).Length -lt 10000) {
+            throw 'GUI screenshot is missing or empty'
           }
           Write-Host "process=$($proc.Id) exited=$($proc.HasExited)"
           if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
