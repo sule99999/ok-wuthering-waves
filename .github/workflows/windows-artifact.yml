@@ -1,4 +1,4 @@
-# Unsigned Windows installers for this branch. No tag, GitHub Release,
+# Unsigned Global installer for this branch. No tag, GitHub Release,
 # code signing, upstream sync, or third-party distribution. A manual button
 # is not declared: GitHub only shows one after this file is on the default branch.
 name: Windows unsigned artifact
