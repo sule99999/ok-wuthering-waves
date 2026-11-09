@@ -152,13 +152,25 @@ function Get-BundledPython {
 }
 
 function Stop-SmokeProcesses([System.Diagnostics.Process]$Launcher) {
-    foreach ($python in (Get-BundledPython)) {
+    $PSNativeCommandUseErrorActionPreference = $false
+    foreach ($python in @(Get-BundledPython)) {
         Write-Host "stopping bundled $($python.Name) pid=$($python.ProcessId)"
-        Stop-Process -Id $python.ProcessId -Force -ErrorAction SilentlyContinue
+        & taskkill.exe /PID $python.ProcessId /T /F | Out-Host
     }
     if ($Launcher -and -not $Launcher.HasExited) {
         Write-Host "stopping launcher pid=$($Launcher.Id)"
-        Stop-Process -Id $Launcher.Id -Force -ErrorAction SilentlyContinue
+        & taskkill.exe /PID $Launcher.Id /T /F | Out-Host
+    }
+    $deadline = (Get-Date).AddSeconds(30)
+    do {
+        $left = @(Get-BundledPython)
+        if ($left.Count -eq 0) { break }
+        Start-Sleep -Seconds 1
+    } while ((Get-Date) -lt $deadline)
+    $left = @(Get-BundledPython)
+    if ($left.Count -gt 0) {
+        $left | ForEach-Object { Write-Host "still running $($_.Name) pid=$($_.ProcessId) $($_.ExecutablePath)" }
+        throw 'Bundled Python was still running after it was stopped'
     }
 }
 
@@ -220,17 +232,23 @@ function Invoke-LauncherScenario([string]$Name, [string]$Kept, [string]$ConfigHa
             Show-SmokeLogs
             throw "$Name did not finish version resolution with no tag"
         }
-        Start-Sleep -Seconds 8
-        $proc.Refresh()
-        if ($proc.MainWindowHandle -ne [IntPtr]::Zero) {
-            [Mcl4SmokeWin32]::SetForegroundWindow($proc.MainWindowHandle) | Out-Null
-            Start-Sleep -Milliseconds 500
-        }
         $launcherShot = Join-Path $Evidence "launcher-$Name.png"
-        Save-Screen $launcherShot
-        $button = Find-EnabledStartButton $launcherShot
+        $button = $null
+        foreach ($attempt in 1..6) {
+            Start-Sleep -Seconds 8
+            if ($proc.HasExited) { break }
+            $proc.Refresh()
+            if ($proc.MainWindowHandle -ne [IntPtr]::Zero) {
+                [Mcl4SmokeWin32]::SetForegroundWindow($proc.MainWindowHandle) | Out-Null
+                Start-Sleep -Milliseconds 400
+            }
+            Save-Screen $launcherShot
+            $button = Find-EnabledStartButton $launcherShot
+            if ($button) { break }
+            Write-Host "$Name Start App was not visible yet, attempt $attempt"
+        }
         if (-not $button) {
-            throw "$Name Start App is not visibly enabled after fetch"
+            throw "$Name Start App is not visibly enabled after startup"
         }
         Write-Host "clicking Start App at $($button.X),$($button.Y)"
         Click-Screen $button.X $button.Y
