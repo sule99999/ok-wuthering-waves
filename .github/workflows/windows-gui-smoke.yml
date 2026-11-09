@@ -69,6 +69,9 @@ jobs:
             Where-Object { $_.Name -match 'debug|chrome|webview' } | Select-Object -First 1
           if ($debug) { Get-Content $debug.FullName -Tail 80 | Write-Host }
           if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+          Copy-Item D:\gui\gui-smoke.png "$env:GITHUB_WORKSPACE\gui-smoke.png" -Force
+          Copy-Item (Join-Path $dest 'stdout.txt') "$env:GITHUB_WORKSPACE\stdout.txt" -Force -ErrorAction SilentlyContinue
+          Copy-Item (Join-Path $dest 'stderr.txt') "$env:GITHUB_WORKSPACE\stderr.txt" -Force -ErrorAction SilentlyContinue
           exit 0
 
       - name: Upload screenshot and logs
@@ -77,8 +80,8 @@ jobs:
         with:
           name: MC_L4-gui-smoke-logs
           path: |
-            D:\gui\gui-smoke.png
-            D:\mcl4smoke\stdout.txt
-            D:\mcl4smoke\stderr.txt
+            gui-smoke.png
+            stdout.txt
+            stderr.txt
           if-no-files-found: warn
           retention-days: 14
