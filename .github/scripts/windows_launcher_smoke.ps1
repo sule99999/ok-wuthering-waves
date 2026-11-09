@@ -118,7 +118,9 @@ function Find-EnabledStartButton([string]$Path) {
             $green = $bytes[$index + 1]
             $red = $bytes[$index + 2]
             # Enabled MUI success button: light #059669 or dark #34d399.
-            if ($green -gt 110 -and $green -lt 230 -and $red -lt 90 -and $blue -gt 60 -and $blue -lt 190 -and ($green - $red) -gt 60 -and ($green - $blue) -gt 10) {
+            # Resting success is #059669. The pointer can still be over the button
+            # from the previous click, and the hover fill is darker, about #036949.
+            if ($green -gt 90 -and $green -lt 230 -and $red -lt 90 -and $blue -gt 50 -and $blue -lt 190 -and ($green - $red) -gt 60 -and ($green - $blue) -gt 10) {
                 $count++
                 $sumX += $x
                 $sumY += $y
