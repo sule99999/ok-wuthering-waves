@@ -274,6 +274,7 @@ jobs:
           if (-not (Test-Path (Join-Path $dest 'data\apps\MC_L4\working\config.py'))) {
             throw 'Startup removed the installed application files'
           }
+          Start-Sleep -Seconds 12
           $shot = Join-Path $dest 'gui-smoke.png'
           try {
             Add-Type -AssemblyName System.Windows.Forms,System.Drawing
@@ -291,6 +292,22 @@ jobs:
           if (-not (Test-Path $shot) -or (Get-Item $shot).Length -lt 10000) {
             throw 'GUI screenshot is missing or empty'
           }
+          $bitmap = [System.Drawing.Bitmap]::FromFile($shot)
+          $white = 0
+          $sampled = 0
+          for ($y = 60; $y -lt ($bitmap.Height - 70); $y += 4) {
+            for ($x = 40; $x -lt ($bitmap.Width - 30); $x += 4) {
+              $color = $bitmap.GetPixel($x, $y)
+              $sampled++
+              if ($color.R -gt 248 -and $color.G -gt 248 -and $color.B -gt 248) { $white++ }
+            }
+          }
+          $bitmap.Dispose()
+          $fraction = [math]::Round($white / [math]::Max($sampled, 1), 4)
+          Write-Host "client-white-fraction=$fraction sampled=$sampled"
+          if ($fraction -gt 0.995) {
+            throw 'Launcher window client area is still blank'
+          }
           Write-Host "process=$($proc.Id) exited=$($proc.HasExited)"
           if (-not $proc.HasExited) {
             Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
@@ -298,6 +315,7 @@ jobs:
           exit 0
 
       - name: Upload GUI smoke screenshot
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: MC_L4-gui-smoke

@@ -17,24 +17,59 @@ const NEW_START = `        void (async () => {
                 }
             },`;
 
+function writePatched(file, patched, newline) {
+    if (newline === "\r\n") {
+        patched = patched.replace(/\n/g, "\r\n");
+    }
+    fs.writeFileSync(file, patched);
+}
+
 function patchLauncherStartup(buildDir) {
     const file = path.join(buildDir, "src", "App.tsx");
     const original = fs.readFileSync(file, "utf8");
     const newline = original.includes("\r\n") ? "\r\n" : "\n";
     const text = original.replace(/\r\n/g, "\n");
-    if (text.includes("await Promise.all(unlistenPromises);")) {
-        return;
+    if (!text.includes("await Promise.all(unlistenPromises);")) {
+        if (!text.includes(OLD_START)) {
+            throw new Error(
+                "App.tsx no longer starts load_app where the window can render before git fetch",
+            );
+        }
+        writePatched(file, text.replace(OLD_START, NEW_START), newline);
     }
-    if (!text.includes(OLD_START)) {
-        throw new Error(
-            "App.tsx no longer starts load_app where the window can render before git fetch",
-        );
+
+    const htmlPath = path.join(buildDir, "index.html");
+    const htmlOriginal = fs.readFileSync(htmlPath, "utf8");
+    const htmlNewline = htmlOriginal.includes("\r\n") ? "\r\n" : "\n";
+    const html = htmlOriginal.replace(/\r\n/g, "\n");
+    if (!html.includes('id="boot"')) {
+        const boot = [
+            '    <div id="boot" style="position:fixed;inset:0;background:#1b1b1b;color:#f5f5f5;font:20px sans-serif;padding:32px;z-index:1">',
+            "      MC_L4 is opening…",
+            "    </div>",
+            '    <div id="root"></div>',
+        ].join("\n");
+        if (!html.includes('<div id="root"></div>')) {
+            throw new Error("index.html no longer has the React root");
+        }
+        writePatched(htmlPath, html.replace('<div id="root"></div>', boot), htmlNewline);
     }
-    let patched = text.replace(OLD_START, NEW_START);
-    if (newline === "\r\n") {
-        patched = patched.replace(/\n/g, "\r\n");
+
+    const appText = fs.readFileSync(file, "utf8").replace(/\r\n/g, "\n");
+    if (!appText.includes('getElementById("boot")')) {
+        const marker = "function App() {";
+        if (!appText.includes(marker)) {
+            throw new Error("App.tsx no longer declares function App");
+        }
+        const removal = `${marker}\n    if (typeof document !== "undefined") {\n        document.getElementById("boot")?.remove();\n    }`;
+        writePatched(file, appText.replace(marker, removal), newline);
     }
-    fs.writeFileSync(file, patched);
+
+    const configPath = path.join(buildDir, "src-tauri", "tauri.conf.json");
+    const configOriginal = fs.readFileSync(configPath, "utf8");
+    if (configOriginal.includes('"visible": false')) {
+        fs.writeFileSync(configPath, configOriginal.replace('"visible": false', '"visible": true'));
+    }
 }
 
 module.exports = { patchLauncherStartup, OLD_START, NEW_START };
