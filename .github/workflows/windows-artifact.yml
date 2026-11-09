@@ -188,138 +188,37 @@ jobs:
           retention-days: 14
           compression-level: 0
 
-      - name: Install and open the Global launcher
+      - name: Install, open Start App, and launch the bundled Python GUI
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
-          $dest = 'D:\mcl4smoke'
-          $installer = 'D:\b\pyappify_dist\MC_L4-win32-Global-setup.exe'
-          cmd /c "`"$installer`" /S /D=$dest"
-          $deadline = (Get-Date).AddMinutes(5)
-          $installed = Join-Path $dest 'MC_L4.exe'
-          $python = Join-Path $dest 'data\apps\MC_L4\python\python.exe'
-          $stable = 0
-          $lastSize = -1
-          while ($stable -lt 3) {
-            if ((Get-Date) -gt $deadline) {
-              Get-ChildItem $dest -Recurse -ErrorAction SilentlyContinue | Select-Object -First 40 FullName | Out-String | Write-Host
-              throw "Installer did not finish writing $python"
-            }
-            if ((Test-Path $installed) -and (Test-Path $python)) {
-              $size = (Get-Item $python).Length
-              if ($size -gt 0 -and $size -eq $lastSize) { $stable++ } else { $stable = 0; $lastSize = $size }
-            } else {
-              $stable = 0
-            }
-            Start-Sleep -Seconds 2
-          }
-          Write-Host "python.exe size=$lastSize"
-          $kept = Join-Path $dest 'data\config\user-kept.txt'
-          Set-Content -LiteralPath $kept -Value 'keep-this-user-file' -Encoding utf8
-          $appJson = Join-Path $dest 'data\apps\MC_L4\app.json'
-          $stale = Get-Content -Raw -LiteralPath $appJson | ConvertFrom-Json
-          $stale.available_versions = @('v3.7.19')
-          $stale.current_version = $null
-          $stale.profiles = @(
-            @{ name = 'China'; main_script = 'main.py'; admin = $true; use_pythonw = $true; show_add_defender = $true; requirements = 'requirements.txt'; python_path = ''; git_url = 'https://cnb.cool/ok-oldking/ok-ww-update2.git'; requires_python = '3.12'; pip_args = '--no-deps' },
-            @{ name = 'Global'; main_script = 'main.py'; admin = $true; use_pythonw = $true; show_add_defender = $true; requirements = 'requirements.txt'; python_path = ''; git_url = 'https://github.com/ok-oldking/ok-ww-update.git'; requires_python = '3.12'; pip_args = '--no-deps' }
-          )
-          $stale | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $appJson -Encoding utf8
-          $stdout = Join-Path $dest 'stdout.txt'
-          $stderr = Join-Path $dest 'stderr.txt'
-          $proc = Start-Process -FilePath $installed -WorkingDirectory $dest -PassThru `
-            -RedirectStandardOutput $stdout -RedirectStandardError $stderr
-          $logDeadline = (Get-Date).AddSeconds(90)
-          $log = $null
-          do {
-            $log = @(
-              Get-ChildItem -Path $dest -Recurse -Filter 'app*.log' -ErrorAction SilentlyContinue
-              Get-Item -LiteralPath (Join-Path $dest 'stdout.txt') -ErrorAction SilentlyContinue
-            ) | Where-Object { $_ -and $_.Length -gt 0 } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-            if ($log -and (Select-String -LiteralPath $log.FullName -Pattern 'Repository already exists' -Quiet)) {
-              break
-            }
-            if ($proc.HasExited) { break }
-            Start-Sleep -Seconds 2
-          } while ((Get-Date) -lt $logDeadline)
-          if ($log) { Get-Content -LiteralPath $log.FullName | Write-Host }
-          Write-Host "process=$($proc.Id) exited=$($proc.HasExited) exitcode=$($proc.ExitCode)"
-          Get-ChildItem -Path $dest -Recurse -ErrorAction SilentlyContinue |
-            Select-Object -First 80 FullName, Length | Format-Table -AutoSize | Out-String | Write-Host
-          if (Test-Path $stdout) { Write-Host '--- stdout ---'; Get-Content $stdout | Write-Host }
-          if (Test-Path $stderr) { Write-Host '--- stderr ---'; Get-Content $stderr | Write-Host }
-          if (-not $log) { throw 'Launcher did not write a startup log' }
-          $text = Get-Content -LiteralPath $log.FullName -Raw
-          if ($text -match 'not a valid git repository') {
-            throw 'Startup still rejects the packaged repository and reclones'
-          }
-          if ($text -match 'Attempting to clone') {
-            throw 'Startup started a full clone instead of opening the packaged repository'
-          }
-          if ($text -match 'Deleting app artifacts') {
-            throw 'Startup deleted the installed app because Python was not found'
-          }
-          if ($text -notmatch 'Finished loading app details\. MC_L4 true') {
-            throw 'Launcher did not load the installed app before git fetch'
-          }
-          if ($text -notmatch 'Repository already exists') {
-            throw 'Launcher did not open the packaged repository'
-          }
-          if ($text -notmatch 'running with tauri ui') {
-            throw 'Launcher did not start the Tauri window'
-          }
-          if ((Get-Content -LiteralPath $kept -Raw) -ne "keep-this-user-file`n" -and (Get-Content -LiteralPath $kept -Raw) -notmatch 'keep-this-user-file') {
-            throw 'Startup removed the preserved user file'
-          }
-          if (-not (Test-Path (Join-Path $dest 'data\apps\MC_L4\working\config.py'))) {
-            throw 'Startup removed the installed application files'
-          }
-          Start-Sleep -Seconds 12
-          $shot = Join-Path $dest 'gui-smoke.png'
-          try {
-            Add-Type -AssemblyName System.Windows.Forms,System.Drawing
-            $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
-            $bitmap = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
-            $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-            $graphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
-            $bitmap.Save($shot, [System.Drawing.Imaging.ImageFormat]::Png)
-            $graphics.Dispose()
-            $bitmap.Dispose()
-            Write-Host "screenshot=$shot bytes=$((Get-Item $shot).Length)"
-          } catch {
-            throw "screenshot was not captured: $($_.Exception.Message)"
-          }
-          if (-not (Test-Path $shot) -or (Get-Item $shot).Length -lt 10000) {
-            throw 'GUI screenshot is missing or empty'
-          }
-          $bitmap = [System.Drawing.Bitmap]::FromFile($shot)
-          $white = 0
-          $sampled = 0
-          for ($y = 60; $y -lt ($bitmap.Height - 70); $y += 4) {
-            for ($x = 40; $x -lt ($bitmap.Width - 30); $x += 4) {
-              $color = $bitmap.GetPixel($x, $y)
-              $sampled++
-              if ($color.R -gt 248 -and $color.G -gt 248 -and $color.B -gt 248) { $white++ }
-            }
-          }
-          $bitmap.Dispose()
-          $fraction = [math]::Round($white / [math]::Max($sampled, 1), 4)
-          Write-Host "client-white-fraction=$fraction sampled=$sampled"
-          if ($fraction -gt 0.995) {
-            throw 'Launcher window client area is still blank'
-          }
-          Write-Host "process=$($proc.Id) exited=$($proc.HasExited)"
-          if (-not $proc.HasExited) {
-            Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
-          }
-          exit 0
+          & ./.github/scripts/windows_launcher_smoke.ps1 `
+            -Dest 'D:\mcl4smoke' `
+            -Installer 'D:\b\pyappify_dist\MC_L4-win32-Global-setup.exe'
 
-      - name: Upload GUI smoke screenshot
+      - name: Collect GUI smoke evidence
+        if: always()
+        shell: pwsh
+        run: |
+          $dest = Join-Path $env:GITHUB_WORKSPACE 'smoke-evidence'
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          if (Test-Path 'D:\mcl4smoke\smoke-evidence') {
+            Copy-Item 'D:\mcl4smoke\smoke-evidence\*' $dest -Force
+          }
+          Get-ChildItem 'D:\mcl4smoke' -Filter 'stdout-*.txt' -ErrorAction SilentlyContinue |
+            Copy-Item -Destination $dest -Force
+          Get-ChildItem 'D:\mcl4smoke' -Filter 'stderr-*.txt' -ErrorAction SilentlyContinue |
+            Copy-Item -Destination $dest -Force
+          Get-ChildItem 'D:\mcl4smoke' -Recurse -Filter '*.log' -ErrorAction SilentlyContinue |
+            Select-Object -First 8 |
+            Copy-Item -Destination $dest -Force
+          Get-ChildItem $dest | Select-Object Name, Length | Format-Table -AutoSize | Out-String | Write-Host
+
+      - name: Upload GUI smoke evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: MC_L4-gui-smoke
-          path: D:\mcl4smoke\gui-smoke.png
+          path: smoke-evidence/
           if-no-files-found: warn
           retention-days: 14
 

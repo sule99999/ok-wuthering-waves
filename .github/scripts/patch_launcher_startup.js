@@ -6,6 +6,13 @@ const path = require("path");
 // can run for minutes, so a missed event leaves the window on its initial
 // blank/loading view. Register the listener first and also apply the command
 // result when the fetch later returns.
+//
+// Start App is also disabled while current_version is empty. This fork has no
+// published tags, so the packaged commit is not a version tag and the launcher
+// clears current_version after fetch. start_app runs the installed working
+// tree; it does not check out a tag. An installed app can therefore start.
+const START_BUTTON = 'disabled={disableRowActions || !app.current_version}>{t("Start App")}';
+const START_BUTTON_FIXED = 'disabled={disableRowActions}>{t("Start App")}';
 const OLD_START = `        (async () => {
             await invokeTauriCommandWrapper<App>("load_app", undefined, () => {},`;
 const NEW_START = `        void (async () => {
@@ -36,6 +43,13 @@ function patchLauncherStartup(buildDir) {
             );
         }
         writePatched(file, text.replace(OLD_START, NEW_START), newline);
+    }
+
+    const buttonText = fs.readFileSync(file, "utf8").replace(/\r\n/g, "\n");
+    if (buttonText.includes(START_BUTTON)) {
+        writePatched(file, buttonText.replace(START_BUTTON, START_BUTTON_FIXED), newline);
+    } else if (!buttonText.includes(START_BUTTON_FIXED)) {
+        throw new Error("App.tsx no longer disables Start App when current_version is empty");
     }
 
     const htmlPath = path.join(buildDir, "index.html");
@@ -72,4 +86,10 @@ function patchLauncherStartup(buildDir) {
     }
 }
 
-module.exports = { patchLauncherStartup, OLD_START, NEW_START };
+module.exports = {
+    patchLauncherStartup,
+    OLD_START,
+    NEW_START,
+    START_BUTTON,
+    START_BUTTON_FIXED,
+};

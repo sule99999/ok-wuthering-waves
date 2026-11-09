@@ -83,9 +83,9 @@ The release entry point is `.github/workflows/build.yml`. It runs only on a `v*`
 
 This pull request also has `.github/workflows/windows-artifact.yml`. A push of the relevant files on this branch builds unsigned Windows installers with the same packaging scripts and uploads the Actions artifact `MC_L4-windows-unsigned`. It does not create a tag or a Release, and it does not sign or upload to MirrorChyan.
 
-当前 Global 安装包是 https://github.com/sule99999/ok-wuthering-waves/actions/runs/42538269771 ，源码 `1f2546c560e0e0f03e920705f1c8323402d13ee6`。下载：https://github.com/sule99999/ok-wuthering-waves/actions/runs/42538269771/artifacts/13641106347 。文件 `MC_L4-win32-Global-setup.exe`，235,246,111 字节。没有签名。在 Windows CI 里装好后，窗口标题是 `MC_L4`，画面上有 Installed、Global 和 Start App，而仓库更新日志还停在 Fetching。Python 没有自动启动。
+`1f2546c` 的安装包（artifact `13641106347`，235,246,111 字节）能画出窗口，但 Start App 是灰的。这个 fork 没有版本 tag，拉取结束后 `current_version` 仍是空的，原来的按钮条件 `!app.current_version` 就会一直禁用。那个包不能当可用安装包。启动器现在在已经安装时允许点击 Start App，因为 `start_app` 运行的是安装目录里的 `working/main.py`，不会去检出一个 tag。
 
-The Global installer is https://github.com/sule99999/ok-wuthering-waves/actions/runs/42538269771 from `1f2546c560e0e0f03e920705f1c8323402d13ee6`. Download: https://github.com/sule99999/ok-wuthering-waves/actions/runs/42538269771/artifacts/13641106347 . The file is `MC_L4-win32-Global-setup.exe`, 235,246,111 bytes. It is unsigned. After a Windows CI install, the window title is `MC_L4` and the page shows Installed, Global, and Start App while the repository fetch is still running. Python is not started automatically.
+The `1f2546c` installer (artifact `13641106347`, 235,246,111 bytes) draws the window, but Start App stays grey. This fork has no version tags, so `current_version` is still empty after fetch and the original `!app.current_version` check keeps the button disabled. That package is not a usable install. The launcher now allows Start App once the app is installed, because `start_app` runs `working/main.py` from the install directory and does not check out a tag.
 
 安装包里已经有 Python 3.12（`data\apps\MC_L4\python\python.exe` 和 `pythonw.exe`）以及 OpenVINO、OpenCV 等依赖。不需要另装 Python 或 Git 来编译。界面使用随包的 `pythonw.exe`，因为 Global 沿用了原来从 China profile 继承的 `use_pythonw`。启动器进程名是 `MC_L4.exe`。
 

@@ -374,3 +374,49 @@ class AppIdentityTest(unittest.TestCase):
             )
             self.assertNotEqual(0, failed.returncode)
             self.assertIn("ok/__init__.py", failed.stderr)
+
+    def test_installed_app_starts_without_a_published_version_tag(self):
+        node = shutil.which("node")
+        if node is None:
+            self.skipTest("node is not installed")
+        with tempfile.TemporaryDirectory() as directory:
+            build = Path(directory)
+            source = build / "src"
+            source.mkdir()
+            (source / "App.tsx").write_text(
+                "function App() {\n"
+                "    return null;\n"
+                "}\n"
+                "        (async () => {\n"
+                '            await invokeTauriCommandWrapper<App>("load_app", undefined, () => {},\n'
+                '            disabled={disableRowActions || !app.current_version}>{t("Start App")}\n',
+                encoding="utf-8",
+            )
+            (build / "index.html").write_text('<div id="root"></div>\n', encoding="utf-8")
+            tauri = build / "src-tauri"
+            tauri.mkdir()
+            (tauri / "tauri.conf.json").write_text('{"visible": false}\n', encoding="utf-8")
+            probe = build / "probe.js"
+            probe.write_text(
+                "const { patchLauncherStartup } = require(process.argv[2]);\n"
+                "patchLauncherStartup(process.argv[3]);\n",
+                encoding="utf-8",
+            )
+            subprocess.run(
+                [
+                    node,
+                    str(probe),
+                    str(ROOT / ".github" / "scripts" / "patch_launcher_startup.js"),
+                    str(build),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            patched = (source / "App.tsx").read_text(encoding="utf-8")
+            self.assertIn("await Promise.all(unlistenPromises);", patched)
+            self.assertIn('disabled={disableRowActions}>{t("Start App")}', patched)
+            self.assertNotIn("!app.current_version", patched)
+            self.assertIn('getElementById("boot")', patched)
+            self.assertIn('id="boot"', (build / "index.html").read_text(encoding="utf-8"))
+            self.assertIn('"visible": true', (tauri / "tauri.conf.json").read_text(encoding="utf-8"))
