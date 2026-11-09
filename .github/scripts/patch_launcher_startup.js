@@ -112,6 +112,125 @@ function patchLauncherStartup(buildDir) {
     if (configOriginal.includes('"visible": false')) {
         fs.writeFileSync(configPath, configOriginal.replace('"visible": false', '"visible": true'));
     }
+    patchPackagedFetch(buildDir);
+}
+
+// A partial clone fetches in well under a second with git because the blob
+// filter stays in place. libgit2 ignores that filter and the same heads-and-tags
+// fetch did not finish within 240 seconds on the Windows runner, so load_app
+// never returned the final no-tag state. The packaged repository is already
+// the reviewed tree. Read its local tags and do not contact the remote.
+const FETCH_BLOCK = `                emit_info!(app_name, "Fetching updates for existing repository...");
+                let repo_path_for_task = repo_path.clone();
+                let url_for_task = url.clone();
+                let app_name_for_task = app_name.clone();
+
+                task::spawn_blocking(move || -> Result<()> {
+                    let repo = open_repository(&repo_path_for_task)?;
+                    let mut remote = repo.find_remote("origin")?;
+                    let mut callbacks = RemoteCallbacks::new();
+                    configure_credentials(&mut callbacks, Some(&url_for_task));
+
+                    let app_name_for_progress = app_name_for_task.clone();
+                    callbacks.transfer_progress(create_transfer_progress_callback(
+                        app_name_for_progress,
+                        "Fetching objects".to_string(),
+                    ));
+
+                    let mut fetch_options = create_fetch_options(callbacks, None);
+                    fetch_options.prune(git2::FetchPrune::On);
+                    let refspecs = [
+                        "+refs/heads/*:refs/remotes/origin/*",
+                        "+refs/tags/*:refs/tags/*",
+                    ];
+                    let fetch_result = remote
+                        .fetch(&refspecs, Some(&mut fetch_options), None)
+                        .with_context(|| {
+                            format!(
+                                "Failed to fetch updates for {}",
+                                repo_path_for_task.display()
+                            )
+                        });
+
+                    emit_update_info!(app_name_for_task, "");
+                    fetch_result?;
+                    prune_deleted_local_tags_from_remote(&repo, "origin", &app_name_for_task)?;
+                    emit_info!(app_name_for_task, "Fetch complete.");
+                    Ok(())
+                })
+                .await
+                .context("Task for fetching updates panicked")??;
+                return Ok(());`;
+const FETCH_SKIPPED = `                emit_info!(
+                    app_name,
+                    "Packaged repository is ready; skipping startup fetch."
+                );
+                return Ok(());`;
+const TAG_FETCH_BLOCK = `        emit_info!(
+            app_name_for_task,
+            "Fetching all tags for repository at {}",
+            repo_path_for_task.display()
+        );
+
+        let repo = open_repository(&repo_path_for_task)?;
+
+        let mut remote = repo.find_remote("origin").with_context(|| {
+            format!(
+                "Failed to find remote 'origin' in repository {}",
+                repo_path_for_task.display()
+            )
+        })?;
+
+        let remote_url = remote.url().ok().map(String::from);
+
+        let mut remote_callbacks = RemoteCallbacks::new();
+        configure_credentials(&mut remote_callbacks, remote_url.as_deref());
+
+        let mut fetch_options = create_fetch_options(remote_callbacks, None);
+        fetch_options.prune(git2::FetchPrune::On);
+
+        remote
+            .fetch(
+                &["+refs/tags/*:refs/tags/*"],
+                Some(&mut fetch_options),
+                None,
+            )
+            .with_context(|| {
+                format!(
+                    "Failed to fetch tags for repository {}",
+                    repo_path_for_task.display()
+                )
+            })?;
+        prune_deleted_local_tags_from_remote(&repo, "origin", &app_name_for_task)?;`;
+const TAG_FETCH_SKIPPED = `        emit_info!(
+            app_name_for_task,
+            "Reading packaged tags without a startup fetch at {}",
+            repo_path_for_task.display()
+        );
+
+        let repo = open_repository(&repo_path_for_task)?;`;
+
+function patchPackagedFetch(buildDir) {
+    const file = path.join(buildDir, "src-tauri", "src", "git.rs");
+    const original = fs.readFileSync(file, "utf8");
+    const newline = original.includes("\r\n") ? "\r\n" : "\n";
+    let text = original.replace(/\r\n/g, "\n");
+    if (!text.includes("skipping startup fetch.")) {
+        if (!text.includes(FETCH_BLOCK)) {
+            throw new Error("git.rs no longer fetches every head before the launcher can start");
+        }
+        text = text.replace(FETCH_BLOCK, FETCH_SKIPPED);
+    }
+    if (!text.includes("Reading packaged tags without a startup fetch")) {
+        if (!text.includes(TAG_FETCH_BLOCK)) {
+            throw new Error("git.rs no longer fetches tags before resolving current_version");
+        }
+        text = text.replace(TAG_FETCH_BLOCK, TAG_FETCH_SKIPPED);
+    }
+    if (text.includes("+refs/heads/*:refs/remotes/origin/*")) {
+        throw new Error("Startup still fetches every branch of the packaged repository");
+    }
+    writePatched(file, text, newline);
 }
 
 module.exports = {
@@ -121,4 +240,7 @@ module.exports = {
     START_BUTTON,
     START_BUTTON_FIXED,
     assertStartRemainsGuarded,
+    patchPackagedFetch,
+    FETCH_BLOCK,
+    TAG_FETCH_BLOCK,
 };

@@ -206,17 +206,15 @@ function Invoke-LauncherScenario([string]$Name, [string]$Kept, [string]$ConfigHa
         }
         if (-not (Test-LogPattern $baseline 'Clone MC_L4 from https://github.com/sule99999/ok-wuthering-waves\.git')) {
             Show-SmokeLogs
-            throw "$Name did not fetch the packaged fork"
+            throw "$Name did not use the packaged fork"
         }
-        $fetchDeadline = (Get-Date).AddSeconds(360)
-        while ((Get-Date) -lt $fetchDeadline) {
-            if (Test-LogPattern $baseline 'Fetch complete\.') { break }
-            if ($proc.HasExited) { break }
-            Start-Sleep -Seconds 5
-        }
-        if (-not (Test-LogPattern $baseline 'Fetch complete\.')) {
+        if (-not (Wait-LogPattern $proc $baseline 'Packaged repository is ready; skipping startup fetch\.' 60)) {
             Show-SmokeLogs
-            throw "$Name git fetch did not finish within 360 seconds"
+            throw "$Name still started the unbounded startup fetch"
+        }
+        if (Test-LogPattern $baseline 'Fetching updates for existing repository') {
+            Show-SmokeLogs
+            throw "$Name still fetches every branch before Start App"
         }
         if (-not (Wait-LogPattern $proc $baseline 'get_tags_and_current_version done for MC_L4: None' 60)) {
             Show-SmokeLogs

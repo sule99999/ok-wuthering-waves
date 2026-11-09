@@ -390,6 +390,22 @@ class AppIdentityTest(unittest.TestCase):
         tauri = build / "src-tauri"
         tauri.mkdir()
         (tauri / "tauri.conf.json").write_text('{"visible": false}\n', encoding="utf-8")
+        git_dir = tauri / "src"
+        git_dir.mkdir()
+        fixture = subprocess.run(
+            [
+                node,
+                "-e",
+                "const {FETCH_BLOCK, TAG_FETCH_BLOCK} = require(process.argv[1]);"
+                "require('fs').writeFileSync(process.argv[2], FETCH_BLOCK + '\\n' + TAG_FETCH_BLOCK);",
+                str(ROOT / ".github" / "scripts" / "patch_launcher_startup.js"),
+                str(git_dir / "git.rs"),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        del fixture
         probe = build / "probe.js"
         probe.write_text(
             "const { patchLauncherStartup } = require(process.argv[2]);\n"
@@ -441,6 +457,11 @@ class AppIdentityTest(unittest.TestCase):
         self.assertIn('getElementById("boot")', patched)
         self.assertIn('id="boot"', (build / "index.html").read_text(encoding="utf-8"))
         self.assertIn('"visible": true', (tauri / "tauri.conf.json").read_text(encoding="utf-8"))
+        git_rs = (tauri / "src" / "git.rs").read_text(encoding="utf-8")
+        self.assertIn("skipping startup fetch.", git_rs)
+        self.assertIn("Reading packaged tags without a startup fetch", git_rs)
+        self.assertNotIn("+refs/heads/*:refs/remotes/origin/*", git_rs)
+        self.assertNotIn("Fetching updates for existing repository", git_rs)
 
     def test_start_patch_rejects_a_button_without_loading_or_update_guards(self):
         completed, _source, _build, _tauri = self._patch_launcher(
