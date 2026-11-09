@@ -79,6 +79,14 @@ function patchLauncherStartup(buildDir) {
         throw new Error("App.tsx no longer disables Start App when current_version is empty");
     }
     assertStartRemainsGuarded(fs.readFileSync(file, "utf8").replace(/\r\n/g, "\n"));
+    const unsafeCompare = "compareVersions(v, app.current_version!)";
+    const safeCompare = "app.current_version ? compareVersions(v, app.current_version) : 0";
+    const compared = fs.readFileSync(file, "utf8").replace(/\r\n/g, "\n");
+    if (compared.includes(unsafeCompare)) {
+        writePatched(file, compared.replaceAll(unsafeCompare, safeCompare), newline);
+    } else if (!compared.includes(safeCompare)) {
+        throw new Error("Version menu still assumes current_version is set");
+    }
 
     const htmlPath = path.join(buildDir, "index.html");
     const htmlOriginal = fs.readFileSync(htmlPath, "utf8");

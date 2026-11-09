@@ -436,6 +436,7 @@ class AppIdentityTest(unittest.TestCase):
             '        <Button onClick={() => handleStopApp(app.name)} disabled={disableRowActions}>{t("Stop App")}</Button>\n'
             "    ) : (\n"
             '        <Button onClick={() => handleStartApp(app.name)} disabled={disableRowActions || !app.current_version}>{t("Start App")}</Button>\n'
+            "        {compareVersions(v, app.current_version!) > 0 ? 'up' : 'down'}\n"
             ") : (\n"
             '    <Button onClick={() => handleInstallClick(app)} disabled={disableRowActions}>{t("Install")}</Button>\n'
             ")}\n"
@@ -445,6 +446,11 @@ class AppIdentityTest(unittest.TestCase):
         self.assertIn("await Promise.all(unlistenPromises);", patched)
         self.assertIn('disabled={disableRowActions}>{t("Start App")}', patched)
         self.assertNotIn("!app.current_version", patched)
+        self.assertNotIn("app.current_version!", patched)
+        self.assertIn(
+            "app.current_version ? compareVersions(v, app.current_version) : 0",
+            patched,
+        )
         self.assertIn("const updateBlocksActions = app.update_state !== 'idle';", patched)
         self.assertIn(
             "const disableRowActions = currentPage !== 'list' || status.messageLoading || isThisAppLoading || updateBlocksActions;",
