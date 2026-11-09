@@ -161,6 +161,12 @@ function Stop-SmokeProcesses([System.Diagnostics.Process]$Launcher) {
         Write-Host "stopping launcher pid=$($Launcher.Id)"
         & taskkill.exe /PID $Launcher.Id /T /F | Out-Host
     }
+    Get-CimInstance Win32_Process -Filter "Name = 'msedgewebview2.exe'" |
+        Where-Object { $_.CommandLine -and $_.CommandLine -like "*$Dest*" } |
+        ForEach-Object {
+            Write-Host "stopping webview pid=$($_.ProcessId)"
+            & taskkill.exe /PID $_.ProcessId /T /F | Out-Host
+        }
     $deadline = (Get-Date).AddSeconds(30)
     do {
         $left = @(Get-BundledPython)
@@ -197,6 +203,9 @@ function Invoke-LauncherScenario([string]$Name, [string]$Kept, [string]$ConfigHa
     $proc = Start-Process -FilePath (Join-Path $Dest 'MC_L4.exe') -WorkingDirectory $Dest -PassThru `
         -RedirectStandardOutput $stdout -RedirectStandardError $stderr
     Write-Host "scenario=$Name launcher=$($proc.Id)"
+    Get-CimInstance Win32_Process |
+        Where-Object { $_.Name -match '^(python|pythonw|MC_L4|msedgewebview2)' } |
+        ForEach-Object { Write-Host "process $($_.Name) pid=$($_.ProcessId)" }
     try {
         if (-not (Wait-LogPattern $proc $baseline 'Repository already exists' 90)) {
             Show-SmokeLogs
