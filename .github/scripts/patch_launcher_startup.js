@@ -24,6 +24,33 @@ const NEW_START = `        void (async () => {
                 }
             },`;
 
+const START_GUARDS = [
+    "const updateBlocksActions = app.update_state !== 'idle';",
+    "const disableRowActions = currentPage !== 'list' || status.messageLoading || isThisAppLoading || updateBlocksActions;",
+    'disabled={disableRowActions}>{t("Stop App")}',
+    'disabled={disableRowActions}>{t("Install")}',
+    'disabled={disableRowActions}>{t("Start App")}',
+];
+
+function assertStartRemainsGuarded(text) {
+    for (const snippet of START_GUARDS) {
+        if (!text.includes(snippet)) {
+            throw new Error(
+                "Start App patch would drop an installed, loading, or update-state guard",
+            );
+        }
+    }
+    const startAt = text.indexOf('{t("Start App")}');
+    const installedAt = text.lastIndexOf("app.installed ?", startAt);
+    const runningAt = text.lastIndexOf("app.running ?", startAt);
+    if (installedAt < 0 || runningAt < installedAt || startAt < runningAt) {
+        throw new Error("Start App is no longer limited to an installed app that is not running");
+    }
+    if (text.includes(START_BUTTON)) {
+        throw new Error("Start App is still disabled when the packaged build has no version tag");
+    }
+}
+
 function writePatched(file, patched, newline) {
     if (newline === "\r\n") {
         patched = patched.replace(/\n/g, "\r\n");
@@ -51,6 +78,7 @@ function patchLauncherStartup(buildDir) {
     } else if (!buttonText.includes(START_BUTTON_FIXED)) {
         throw new Error("App.tsx no longer disables Start App when current_version is empty");
     }
+    assertStartRemainsGuarded(fs.readFileSync(file, "utf8").replace(/\r\n/g, "\n"));
 
     const htmlPath = path.join(buildDir, "index.html");
     const htmlOriginal = fs.readFileSync(htmlPath, "utf8");
@@ -92,4 +120,5 @@ module.exports = {
     NEW_START,
     START_BUTTON,
     START_BUTTON_FIXED,
+    assertStartRemainsGuarded,
 };

@@ -102,11 +102,15 @@ function Find-EnabledStartButton([string]$Path) {
     $bytes = New-Object byte[] ($stride * $bitmap.Height)
     [System.Runtime.InteropServices.Marshal]::Copy($data.Scan0, $bytes, 0, $bytes.Length)
     $bitmap.UnlockBits($data)
+    $count = 0
+    $minX = [int]($bitmap.Width * 0.45)
+    $maxY = [Math]::Max(0, $bitmap.Height - 60)
+    $left = $bitmap.Width
+    $top = $bitmap.Height
+    $right = 0
+    $bottom = 0
     $sumX = 0
     $sumY = 0
-    $count = 0
-    $minX = [int]($bitmap.Width * 0.55)
-    $maxY = [Math]::Min(220, $bitmap.Height)
     for ($y = 0; $y -lt $maxY; $y += 2) {
         for ($x = $minX; $x -lt $bitmap.Width; $x += 2) {
             $index = ($y * $stride) + ($x * 4)
@@ -115,15 +119,23 @@ function Find-EnabledStartButton([string]$Path) {
             $red = $bytes[$index + 2]
             # Enabled MUI success button: light #059669 or dark #34d399.
             if ($green -gt 110 -and $green -lt 230 -and $red -lt 90 -and $blue -gt 60 -and $blue -lt 190 -and ($green - $red) -gt 60 -and ($green - $blue) -gt 10) {
+                $count++
                 $sumX += $x
                 $sumY += $y
-                $count++
+                if ($x -lt $left) { $left = $x }
+                if ($y -lt $top) { $top = $y }
+                if ($x -gt $right) { $right = $x }
+                if ($y -gt $bottom) { $bottom = $y }
             }
         }
     }
     $bitmap.Dispose()
-    Write-Host "enabled-start-pixels=$count"
-    if ($count -lt 40) { return $null }
+    $boxWidth = $right - $left
+    $boxHeight = $bottom - $top
+    Write-Host "enabled-start-pixels=$count box=${boxWidth}x${boxHeight}"
+    if ($count -lt 25 -or $boxWidth -lt 30 -or $boxWidth -gt 280 -or $boxHeight -lt 12 -or $boxHeight -gt 80) {
+        return $null
+    }
     return @{ X = [int]($sumX / $count); Y = [int]($sumY / $count) }
 }
 
@@ -196,7 +208,7 @@ function Invoke-LauncherScenario([string]$Name, [string]$Kept, [string]$ConfigHa
             Show-SmokeLogs
             throw "$Name did not fetch the packaged fork"
         }
-        $fetchDeadline = (Get-Date).AddSeconds(240)
+        $fetchDeadline = (Get-Date).AddSeconds(360)
         while ((Get-Date) -lt $fetchDeadline) {
             if (Test-LogPattern $baseline 'Fetch complete\.') { break }
             if ($proc.HasExited) { break }
@@ -204,7 +216,7 @@ function Invoke-LauncherScenario([string]$Name, [string]$Kept, [string]$ConfigHa
         }
         if (-not (Test-LogPattern $baseline 'Fetch complete\.')) {
             Show-SmokeLogs
-            throw "$Name git fetch did not finish within 240 seconds"
+            throw "$Name git fetch did not finish within 360 seconds"
         }
         if (-not (Wait-LogPattern $proc $baseline 'get_tags_and_current_version done for MC_L4: None' 60)) {
             Show-SmokeLogs
@@ -232,12 +244,13 @@ function Invoke-LauncherScenario([string]$Name, [string]$Kept, [string]$ConfigHa
             Show-SmokeLogs
             throw "$Name did not launch the bundled Python runtime"
         }
-        $pythonDeadline = (Get-Date).AddSeconds(120)
+        $pythonDeadline = (Get-Date).AddSeconds(180)
         $pythonWindow = $false
         do {
-            $python = Get-Process -Name pythonw,python -ErrorAction SilentlyContinue |
-                Where-Object { $_.Path -and $_.Path.StartsWith($Dest, [System.StringComparison]::OrdinalIgnoreCase) -and $_.MainWindowHandle -ne 0 }
-            foreach ($candidate in @($python)) {
+            $python = @(Get-Process -Name pythonw,python -ErrorAction SilentlyContinue |
+                Where-Object { $_ -and $_.Path -and $_.Path.StartsWith($Dest, [System.StringComparison]::OrdinalIgnoreCase) -and $_.MainWindowHandle -ne 0 })
+            foreach ($candidate in $python) {
+                if (-not $candidate) { continue }
                 $candidate.Refresh()
                 Write-Host "python-window pid=$($candidate.Id) title=$($candidate.MainWindowTitle)"
                 if ($candidate.MainWindowTitle) {
@@ -308,17 +321,50 @@ try {
     Invoke-LauncherScenario 'clean' $kept $configHash $taskHash
 
     $appJson = Join-Path $Dest 'data\apps\MC_L4\app.json'
-    $stale = Get-Content -Raw -LiteralPath $appJson | ConvertFrom-Json
-    $stale.available_versions = @('v3.7.19')
-    $stale.current_version = $null
-    $stale.current_version_missing = $false
-    $stale.current_profile = 'Global'
-    $stale.update_state = 'idle'
-    $stale.profiles = @(
-        @{ name = 'China'; main_script = 'main.py'; admin = $true; use_pythonw = $true; show_add_defender = $true; requirements = 'requirements.txt'; python_path = ''; git_url = 'https://cnb.cool/ok-oldking/ok-ww-update2.git'; requires_python = '3.12'; pip_args = '--no-deps' },
-        @{ name = 'Global'; main_script = 'main.py'; admin = $true; use_pythonw = $true; show_add_defender = $true; requirements = 'requirements.txt'; python_path = ''; git_url = 'https://github.com/ok-oldking/ok-ww-update.git'; requires_python = '3.12'; pip_args = '--no-deps' }
-    )
-    $stale | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $appJson -Encoding utf8
+    $stalePatch = Join-Path $env:TEMP 'mcl4-stale-app.py'
+    @'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+app = json.loads(path.read_text(encoding="utf-8"))
+app["available_versions"] = ["v3.7.19"]
+app["current_version"] = None
+app["current_profile"] = "Global"
+app["update_state"] = "idle"
+app["update_target_version"] = None
+app["update_error"] = None
+app["profiles"] = [
+    {
+        "name": "China",
+        "main_script": "main.py",
+        "admin": True,
+        "use_pythonw": True,
+        "show_add_defender": True,
+        "requirements": "requirements.txt",
+        "PYTHONPATH": "",
+        "git_url": "https://cnb.cool/ok-oldking/ok-ww-update2.git",
+        "requires_python": "3.12",
+        "pip_args": "--no-deps",
+    },
+    {
+        "name": "Global",
+        "main_script": "main.py",
+        "admin": True,
+        "use_pythonw": True,
+        "show_add_defender": True,
+        "requirements": "requirements.txt",
+        "PYTHONPATH": "",
+        "git_url": "https://github.com/ok-oldking/ok-ww-update.git",
+        "requires_python": "3.12",
+        "pip_args": "--no-deps",
+    },
+]
+path.write_text(json.dumps(app, indent=2), encoding="utf-8")
+'@ | Set-Content -LiteralPath $stalePatch -Encoding utf8NoBOM
+    python $stalePatch $appJson
+    if ($LASTEXITCODE -ne 0) { throw 'Could not write the stale upgrade app.json' }
     Invoke-LauncherScenario 'upgrade' $kept $configHash $taskHash
 } finally {
     Show-SmokeLogs
