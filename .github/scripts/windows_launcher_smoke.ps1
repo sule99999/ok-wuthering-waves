@@ -330,7 +330,9 @@ if ($Archive) {
     Copy-Item -LiteralPath $launcherExe.FullName -Destination (Join-Path $portableRoot 'MC_L4.exe') -Force
     $Dest = $portableRoot
     Write-Host "portable root $Dest"
-} else {
+}
+$Evidence = Join-Path $Dest 'smoke-evidence'
+if (-not $Archive) {
     if (-not (Test-Path -LiteralPath $Installer)) {
         throw "Installer is missing: $Installer"
     }

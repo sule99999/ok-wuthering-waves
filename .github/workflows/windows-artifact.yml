@@ -159,11 +159,20 @@ jobs:
             throw 'Global installer does not contain an openable git repository'
           }
 
-      - name: Upload unsigned installers
+      - name: Upload unsigned portable archive
         uses: actions/upload-artifact@v4
         with:
           name: MC_L4-win32-Global
           path: D:\b\pyappify_dist\MC_L4-win32-Global.7z
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload unsigned launcher
+        uses: actions/upload-artifact@v4
+        with:
+          name: MC_L4-win32
+          path: D:\b\pyappify_dist\MC_L4-win32.zip
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
@@ -182,16 +191,14 @@ jobs:
         run: |
           $dest = Join-Path $env:GITHUB_WORKSPACE 'smoke-evidence'
           New-Item -ItemType Directory -Force -Path $dest | Out-Null
-          if (Test-Path 'D:\mcl4smoke\smoke-evidence') {
-            Copy-Item 'D:\mcl4smoke\smoke-evidence\*' $dest -Force
+          $roots = @('D:\mcl4smoke', (Join-Path $env:RUNNER_TEMP 'mcl4-portable'))
+          foreach ($root in $roots) {
+            if (-not (Test-Path $root)) { continue }
+            Get-ChildItem $root -Recurse -Include 'stdout-*.txt','stderr-*.txt','*.log','*.png' -ErrorAction SilentlyContinue |
+              Where-Object { $_.Length -gt 0 -and $_.FullName -notmatch '\\EBWebView\\' } |
+              Select-Object -First 24 |
+              Copy-Item -Destination $dest -Force
           }
-          Get-ChildItem 'D:\mcl4smoke' -Filter 'stdout-*.txt' -ErrorAction SilentlyContinue |
-            Copy-Item -Destination $dest -Force
-          Get-ChildItem 'D:\mcl4smoke' -Filter 'stderr-*.txt' -ErrorAction SilentlyContinue |
-            Copy-Item -Destination $dest -Force
-          Get-ChildItem 'D:\mcl4smoke' -Recurse -Filter '*.log' -ErrorAction SilentlyContinue |
-            Select-Object -First 8 |
-            Copy-Item -Destination $dest -Force
           Get-ChildItem $dest | Select-Object Name, Length | Format-Table -AutoSize | Out-String | Write-Host
 
       - name: Upload GUI smoke evidence
