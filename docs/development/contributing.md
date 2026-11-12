@@ -49,6 +49,97 @@ This project only supports Python 3.12. Prefer using the repository-local virtua
 
 If `.venv` does not exist, use `python` instead of the interpreter path above.
 
+## 运行此 PR / Run this pull request
+
+本项目只在 Windows 上运行。贡献指南要求 Python 3.12。`pyproject.toml` 写了 `>=3.11`，但发布配置和 China 打包配置都是 3.12。下面的命令取出合并前的 PR 分支，不创建 tag，也不发布安装包。
+
+This project runs on Windows. The supported Python is 3.12. `pyproject.toml` allows `>=3.11`, but the release workflow and the China package profile both use 3.12. These commands check out this pull request before it is merged. They do not create a tag or publish an installer.
+
+```powershell
+git clone https://github.com/sule99999/ok-wuthering-waves.git
+cd ok-wuthering-waves
+git fetch origin pull/1/head:pr-1
+git checkout pr-1
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt --upgrade
+.\.venv\Scripts\python.exe main.py
+```
+
+`main_debug.py` 打开调试界面。`main_web.py` 需要再安装 `".[web-test]"`。任务参数见 README：`main.py -t 1 -e`。
+
+`main_debug.py` opens the debug UI. `main_web.py` also needs `".[web-test]"`. Task arguments are in the README: `main.py -t 1 -e`.
+
+这样启动时，窗口标题来自 `config.py` 的 `gui_title`（`MC_L4`）。ok-script 还会在系统标题后加上版本和渠道，源码运行时大约是 `MC_L4 dev`。任务管理器里的进程名仍是 `python.exe`。只有重新打出来的启动器才是 `MC_L4.exe`。
+
+This launch uses `gui_title` from `config.py` (`MC_L4`). ok-script appends the version and channel to the operating-system caption, so a source launch looks like `MC_L4 dev`. Task Manager still shows `python.exe`. Only a rebuilt launcher is `MC_L4.exe`.
+
+### 打包 / Packaging
+
+仓库里的正式发布入口是 `.github/workflows/build.yml`，只在推送 `v*` tag 时运行，运行环境是 `windows-latest` 和 Python 3.12。那个 workflow 会创建 GitHub Release，稳定版还会请求 SignPath。
+
+The release entry point is `.github/workflows/build.yml`. It runs only on a `v*` tag, on `windows-latest` with Python 3.12. That workflow can create a GitHub Release. Signing is off, and the package step does not build a setup executable.
+
+这个 PR 另有 `.github/workflows/windows-artifact.yml`。它在本分支相关文件被推送时，用同一套打包脚本打未签名的 Windows 安装包，并上传为 Actions artifact `MC_L4-windows-unsigned`。它不创建 tag、Release，不签名，也不上传 MirrorChyan。
+
+This pull request also has `.github/workflows/windows-artifact.yml`. A push of the relevant files on this branch builds unsigned Windows installers with the same packaging scripts and uploads the Actions artifact `MC_L4-windows-unsigned`. It does not create a tag or a Release, and it does not sign or upload to MirrorChyan.
+
+上一份经过窗口验证的安装包仍是 setup.exe：https://github.com/sule99999/ok-wuthering-waves/actions/runs/42554289961/artifacts/13647361734 （`49089ae`，235,223,190 字节）。上游 v3.7.20 改为只发 portable 7z、不再打 setup.exe，本分支已经跟着改。新的 Global 7z 要以 Windows CI 实际上传的 artifact 为准，在那之前不要把旧的 setup.exe 当成当前包。
+
+The last package whose window was verified is still the setup.exe at https://github.com/sule99999/ok-wuthering-waves/actions/runs/42554289961/artifacts/13647361734 (`49089ae`, 235,223,190 bytes). Upstream v3.7.20 ships portable 7z archives and no longer builds setup.exe, and this branch follows that. Use the Global 7z only after Windows CI uploads it. Until then, do not treat the older setup.exe as the current package.
+
+安装包里已经有 Python 3.12（`data\apps\MC_L4\python\python.exe` 和 `pythonw.exe`）以及 OpenVINO、OpenCV 等依赖。不需要另装 Python 或 Git 来编译。界面使用随包的 `pythonw.exe`，因为 Global 沿用了原来从 China profile 继承的 `use_pythonw`。启动器进程名是 `MC_L4.exe`。
+
+The installer already contains Python 3.12 (`data\apps\MC_L4\python\python.exe` and `pythonw.exe`) plus OpenVINO, OpenCV, and the other dependencies. A separate Python or Git install is not required to compile. The UI uses the bundled `pythonw.exe` because Global keeps the `use_pythonw` value it previously inherited from the China profile. The launcher process is `MC_L4.exe`.
+
+早先 1,202,898,573 字节的 Global 包多带了完整检出里的 `working/ok_templates`（约 880 MB 图片）和 `working/tests`（约 130 MB 测试图）。程序源码不引用这些目录。上游 v3.7.19 的 `ok-ww-win32-Global-setup-3.7.19.exe` 是 387,428,948 字节，解压后约 929 MB，其中 `repo/.git` 约 198 MB；本安装包把那个历史换成了很小的 Git 标记，所以比上游更小。OpenVINO 2026.3.0 和 opencv-python 5.0.0.93 两边都有，不是体积差的原因。
+
+The earlier 1,202,898,573-byte Global package also contained `working/ok_templates` (about 880 MB of images) and `working/tests` (about 130 MB of test images) from the full checkout. Application source does not reference those directories. Upstream v3.7.19 `ok-ww-win32-Global-setup-3.7.19.exe` is 387,428,948 bytes, about 929 MB uncompressed, including about 198 MB of `repo/.git`. This installer replaces that history with a tiny Git marker, so it is smaller than upstream. Both include OpenVINO 2026.3.0 and opencv-python 5.0.0.93, so those versions are not the size difference.
+
+安装包里的 Git 仓库只有一个空的标记，完整历史和 `ok_templates` 没有打进去，否则 NSIS 会失败。第一次打开程序时，PyAppify 可能联网拉取仓库。这个 fork 没有版本 tag，所以这次拉取不应把已经打进安装包的 `MC_L4` 源码换回 master。
+
+The installer contains only a tiny Git marker. The full history and `ok_templates` are omitted because NSIS could not pack them. On first launch PyAppify may download the repository. This fork has no version tags, so that download should not replace the `MC_L4` source already in the installer.
+
+稳定版 tag（`v1.2.3` 这种）还会走 SignPath 签名。签名使用 workflow 里 ok-oldking 的 organization、project slug 和 `SIGNPATH_API_TOKEN`。这个 fork 没有这些 secret，不能替上游签名。预发布 tag 会跳过签名并继续打包。
+
+A stable tag such as `v1.2.3` also requests SignPath signing. The workflow uses ok-oldking's organization, project slug, and `SIGNPATH_API_TOKEN`. This fork does not have those secrets, so it cannot sign for upstream. A prerelease tag skips signing and continues packaging.
+
+打包脚本会把当前检出的源码覆盖进 `data/apps/MC_L4/working`，包括 `inline_ok_requirements` 写进去的 `ok/` 和 `pyappify/`。China profile 仍使用原来的 `pip_args: "--no-deps"`，Global 沿用第一组 profile 的安装参数。两个 profile 的 `git_url` 都是 `https://github.com/sule99999/ok-wuthering-waves.git`，不再拉取 `ok-oldking/ok-ww-update` 或 `ok-ww-update2`。
+
+The packaging script copies the checked-out source into `data/apps/MC_L4/working`, including the `ok/` and `pyappify/` directories written by `inline_ok_requirements`. The China profile still has the original `pip_args: "--no-deps"`, and Global inherits that profile's install arguments. Both `git_url` values are `https://github.com/sule99999/ok-wuthering-waves.git`. They do not fetch `ok-oldking/ok-ww-update` or `ok-ww-update2`.
+
+`.github/workflows/build.yml` 里，同步到 ok-oldking 更新仓库的 job 只在 `github.repository == 'ok-oldking/ok-wuthering-waves'` 时运行。这个 fork 没有 `CNB_TOKEN` / `OK_GH`，所以不会推上游；打包 job 在同步被跳过时仍会继续。发布说明里的上游 changelog 只有同步成功时才有内容。MirrorChyan 上传文件名已改为 `MC_L4-win32-China-setup-*.exe`，但本 PR 没有执行上传，也没有 MirrorChyan token。
+
+In `.github/workflows/build.yml`, the job that pushes to ok-oldking update repositories runs only when `github.repository == 'ok-oldking/ok-wuthering-waves'`. This fork does not have `CNB_TOKEN` or `OK_GH`, so it does not push upstream, and the package job still continues when that sync is skipped. The upstream changelog in the release notes is present only after a successful sync. The MirrorChyan filename is now `MC_L4-win32-China-setup-*.exe`. This pull request did not run that upload and does not add a MirrorChyan token.
+
+副本出口是否在所有支持的副本里都显示 `illusive_realm_exit`，以及按 Esc 后该图标是否会先消失而队伍名仍在，没有在游戏里验证。若图标先消失，代码会把当前画面当成已经离开副本。这不是已确认的行为。
+
+Whether every supported domain shows `illusive_realm_exit`, and whether that icon disappears after Esc while the team names remain, was not verified in the game. If the icon disappears first, the code treats the screen as already outside the domain. That outcome is not confirmed.
+
+离开副本的等待和打开主界面的等待不是同一个预算。原来的 `esc_world_confirm` 在点确认后最多等 120 秒；`DomainTask` 用自己的 `teleport_timeout`（100 秒）。Tacet/Daily 的 180 秒和梦魇的 30 秒只用于还没进副本时的 `ensure_main`。已经在副本里时，不会把 30 秒当成读条上限。
+
+The domain-load wait and the main-screen wait are different budgets. Original `esc_world_confirm` waited up to 120 seconds after the confirm click. `DomainTask` uses its own `teleport_timeout` (100 seconds). Tacet and Daily's 180 seconds, and Nightmare's 30 seconds, apply only to `ensure_main` before a domain is entered. A task already inside a domain does not use 30 seconds as the load limit.
+
+MirrorChyan 只有在上游同步 job 成功并且它报告稳定版时才会被触发。Fork 跳过同步时不会上传。发布说明在没有同步结果时使用 `github.ref_name`，而不是空白的上游 changelog。
+
+MirrorChyan is triggered only when the upstream sync job succeeds and reports a stable release. A fork run that skips sync does not upload. The release note uses `github.ref_name` when there is no sync result, instead of a blank upstream changelog.
+
+本地或 workflow 成功打包后，`pyappify_dist` 里会有：
+
+A successful package, locally or in the workflow, writes these files under `pyappify_dist`:
+
+- `MC_L4-win32.zip`（内含 `MC_L4/MC_L4.exe`）
+- `MC_L4-win32-China-setup-<version>.exe`
+- `MC_L4-win32-Global-setup-<version>.exe`
+- `MC_L4-win32-online-setup-<version>.exe`
+
+`<version>` 是去掉开头 `v` 的 tag。启动器进程名是 `MC_L4.exe`。China 配置再用 `pythonw.exe` 跑界面，Global 默认用 `python.exe`。这两种 Python 进程名都不会变成 `MC_L4`。
+
+`<version>` is the tag without a leading `v`. The launcher process name is `MC_L4.exe`. The China profile then runs the UI with `pythonw.exe`; Global uses `python.exe` by default. Those Python process names do not become `MC_L4`.
+
+在 Windows 上手动打这个 PR 的包，还需要 Git、Node.js、pnpm、Rust stable，以及能克隆 `ok-oldking/pyappify` 和 `ok-oldking/pyappify-action`。workflow 里的 `.github/scripts/run_pyappify_action.sh` 依赖 `GITHUB_WORKSPACE` 和 `RUNNER_TEMP`，它不是一条已经验证过的本机安装命令。这里没有生成安装包。
+
+Building this pull request by hand on Windows also requires Git, Node.js, pnpm, Rust stable, and clones of `ok-oldking/pyappify` and `ok-oldking/pyappify-action`. `.github/scripts/run_pyappify_action.sh` depends on `GITHUB_WORKSPACE` and `RUNNER_TEMP`; it is not a verified local install command. No installer was produced here.
+
 ## 测试 / Testing
 
 提交 PR 前，请尽量运行相关测试，并在 PR 描述中说明测试结果。

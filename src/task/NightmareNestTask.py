@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from ok import Logger
 from src.task.BaseCombatTask import BaseCombatTask, CharRevivedException
+from src.task.BaseWWTask import TEAM_SCREEN_FEATURES
 from src.task.WWOneTimeTask import WWOneTimeTask
 from src.task.task_icons import task_icon
 
@@ -49,7 +50,7 @@ class NightmareNestTask(WWOneTimeTask, BaseCombatTask):
         self._unreachable_nests.clear()
         self._nest_deaths.clear()
         WWOneTimeTask.run(self)
-        self.ensure_main(time_out=30)
+        self.make_sure_in_world(time_out=30)
         self._init_queue()
         self.log_info(self.tr('opened gray_book_boss'))
         while nest := self.get_nest_to_go():
@@ -62,7 +63,7 @@ class NightmareNestTask(WWOneTimeTask, BaseCombatTask):
         self._unreachable_nests.clear()
         self._nest_deaths.clear()
         WWOneTimeTask.run(self)
-        self.ensure_main(time_out=30)
+        self.make_sure_in_world(time_out=30)
         self._init_queue()
         self.log_info(self.tr('opened gray_book_boss'))
         while nest := self.get_nest_to_go():
@@ -88,9 +89,9 @@ class NightmareNestTask(WWOneTimeTask, BaseCombatTask):
     def combat_nest(self, nest):
         target_box = nest.box if isinstance(nest, NestTarget) else nest
         self.click(target_box, after_sleep=2)
-        feature = self.wait_feature(['fast_travel_custom', 'gray_teleport', 'remove_custom', 'team_close'], time_out=10,
-                                    settle_time=0.5, raise_if_not_found=True)
-        is_team = feature.name == 'team_close'
+        feature = self.wait_feature(['fast_travel_custom', 'gray_teleport', 'remove_custom', *TEAM_SCREEN_FEATURES],
+                                    time_out=10, settle_time=0.5, raise_if_not_found=True)
+        is_team = feature.name in TEAM_SCREEN_FEATURES
         if is_team:
             self.click_team_challenge()
             self.wait_in_team_and_world(time_out=120)

@@ -260,7 +260,7 @@ config = {
     </p>
 """,
     'screenshots_folder': "screenshots",
-    'gui_title': 'OK-WW',  # Optional
+    'gui_title': 'MC_L4',  # Optional
     'game_name': 'Wuthering Waves',
     # 'coco_feature_folder': get_path(__file__, 'assets/coco_feature'),  # required if using feature detection
     'log_file': 'logs/ok-ww.log',  # Optional, auto rotating every day
@@ -291,10 +291,5 @@ config = {
         ["src.task.FastTravelTask", "FastTravelTask"],
         ["src.task.MouseResetTask", "MouseResetTask"],
     ], 'scene': ["src.scene.WWScene", "WWScene"],
-    'update_pyappify': {
-        'to_version': '1.2.3',
-        'zip_url': 'https://github.com/ok-oldking/ok-wuthering-waves/releases/download/v3.5.30/ok-ww-win32.zip',
-        'sha256': '447207edbfb6944beb994347048e155df99775eb18c87dcae54dda125071c94a',
-    }
 
 }

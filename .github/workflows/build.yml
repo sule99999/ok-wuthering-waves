@@ -18,7 +18,6 @@ env:
   PYTHON_VERSION: '3.12'
   PYTHONIOENCODING: 'UTF-8'
   PYTHONLEGACYWINDOWSSTDIO: 'UTF-8'
-  SIGN_BUILD: 'true'
   BUILD_EXE: 'true'
 #  USE_RELEASE: 'https://api.github.com/repos/ok-oldking/ok-wuthering-waves/releases/tags/v3.5.15'
 
@@ -26,6 +25,8 @@ jobs:
   validate:
     name: 1 · Validate
     runs-on: windows-latest
+    outputs:
+      is_release: ${{ steps.release_version.outputs.is_release }}
 
     steps:
       - name: Configure runner
@@ -99,9 +100,21 @@ jobs:
             }
           }
 
+      - name: Check release version
+        id: release_version
+        if: env.BUILD_EXE == 'true'
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $isRelease = $env:RELEASE_TAG -match '^v?\d+\.\d+\.\d+$'
+          "is_release=$($isRelease.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          Write-Host "Release version: $isRelease"
+
   synchronize:
     name: 2 · Synchronize repositories
     needs: validate
+    if: github.repository == 'ok-oldking/ok-wuthering-waves'
     runs-on: windows-latest
     outputs:
       is_release: ${{ steps.release_version.outputs.is_release }}
@@ -168,11 +181,14 @@ jobs:
           show_author: true
 
   package:
-    name: 3 · Build and optionally sign
-    needs: synchronize
+    name: 3 · Build portable packages
+    needs: [validate, synchronize]
+    if: >-
+      always() && needs.validate.result == 'success' &&
+      (needs.synchronize.result == 'success' || needs.synchronize.result == 'skipped')
     runs-on: windows-latest
     env:
-      SIGN_BUILD: ${{ needs.synchronize.outputs.is_release }}
+      SIGN_BUILD: 'false'
 
     steps:
       - name: Configure runner
@@ -210,21 +226,27 @@ jobs:
 
       - name: Reuse base executable
         id: reuse_executable
-        uses: ok-oldking/pyappify-action@master
+        uses: ./.github/actions/package-launcher
         if: env.BUILD_EXE == 'true' && env.USE_RELEASE != ''
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
         with:
+          version: v1.2.6
+          build_setup: false
           use_release: ${{ env.USE_RELEASE }}
           add_version_name: true
+          package_zip: true
+          package_zip_format: 7z
 
-      - name: Build portable executable
+      - name: Build portable packages
         id: build_executable
-        uses: ok-oldking/pyappify-action@master
+        uses: ./.github/actions/package-launcher
         if: env.BUILD_EXE == 'true' && env.USE_RELEASE == ''
         with:
+          version: v1.2.6
+          build_setup: false
           build_exe_only: ${{ env.SIGN_BUILD == 'true' }}
           add_version_name: true
+          package_zip: true
+          package_zip_format: 7z
 
       - name: Upload portable executable for signing
         id: upload_executable
@@ -301,10 +323,14 @@ jobs:
 
       - name: Build installers
         id: build_installers
-        uses: ok-oldking/pyappify-action@master
+        uses: ./.github/actions/package-launcher
         if: env.BUILD_EXE == 'true' && env.SIGN_BUILD == 'true'
         with:
+          version: v1.2.6
+          build_setup: false
           add_version_name: true
+          package_zip: true
+          package_zip_format: 7z
 
       - name: Upload China installer for signing
         id: upload_china_installer
@@ -312,7 +338,7 @@ jobs:
         if: env.BUILD_EXE == 'true' && env.SIGN_BUILD == 'true'
         with:
           name: china-installer-to-sign
-          path: pyappify_dist/ok-ww-win32-China-setup-*.exe
+          path: pyappify_dist/MC_L4-win32-China-setup-*.exe
           if-no-files-found: error
           retention-days: 1
 
@@ -389,7 +415,10 @@ jobs:
 
   publish:
     name: 4 · Publish
-    needs: [ synchronize, package ]
+    needs: [ validate, synchronize, package ]
+    if: >-
+      always() && needs.validate.result == 'success' && needs.package.result == 'success' &&
+      (needs.synchronize.result == 'success' || needs.synchronize.result == 'skipped')
     runs-on: ubuntu-latest
 
     steps:
@@ -410,12 +439,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           body: |
-            ### 更新日志 ${{ needs.synchronize.outputs.start_tag }} -> ${{ needs.synchronize.outputs.end_tag }}:
-              ${{ needs.synchronize.outputs.changes }}
+            ### ${{ github.ref_name }}
+            ${{ needs.synchronize.result == 'success' && needs.synchronize.outputs.changes || 'Upstream update-repository sync did not run. MirrorChyan distribution stays off unless that sync reports a stable release.' }}
             ### Install from source
-              See the [source installation guide](https://github.com/ok-oldking/ok-wuthering-waves/blob/master/docs/development/contributing.md).
+              See docs/development/contributing.md in this repository.
           draft: false
-          prerelease: ${{ needs.synchronize.outputs.is_release != 'true' }}
+          prerelease: ${{ needs.validate.outputs.is_release != 'true' }}
           files: pyappify_dist/*
 
       - name: Trigger distribution workflows

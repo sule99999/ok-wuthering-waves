@@ -1,0 +1,87 @@
+name: Windows GUI smoke
+
+on:
+  push:
+    branches:
+      - cursor/mc-l4-window-and-exe-name-5999
+    paths:
+      - .github/workflows/windows-gui-smoke.yml
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  smoke:
+    name: Open the built Global installer
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Download the Global installer
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force D:\gui | Out-Null
+          curl.exe -fL --retry 5 -H "Authorization: Bearer $env:GH_TOKEN" -H "Accept: application/vnd.github+json" -o D:\gui\artifact.zip "https://api.github.com/repos/sule99999/ok-wuthering-waves/actions/artifacts/13641106347/zip"
+          Expand-Archive D:\gui\artifact.zip D:\gui\pkg
+          Get-ChildItem D:\gui\pkg | Format-Table Name, Length
+
+      - name: Install and capture the window
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Get-ChildItem D:\gui\pkg -Filter '*.exe' | Select-Object -First 1
+          $dest = 'D:\mcl4smoke'
+          cmd /c "`"$($installer.FullName)`" /S /D=$dest"
+          $python = Join-Path $dest 'data\apps\MC_L4\python\python.exe'
+          $deadline = (Get-Date).AddMinutes(4)
+          $stable = 0
+          $last = -1
+          while ($stable -lt 2) {
+            if ((Get-Date) -gt $deadline) { throw "python.exe was not installed" }
+            if (Test-Path $python) {
+              $size = (Get-Item $python).Length
+              if ($size -gt 0 -and $size -eq $last) { $stable++ } else { $stable = 0; $last = $size }
+            }
+            Start-Sleep -Seconds 2
+          }
+          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--enable-logging --v=1'
+          $env:WEBVIEW2_USER_DATA_FOLDER = Join-Path $dest 'EBWebView'
+          $proc = Start-Process -FilePath (Join-Path $dest 'MC_L4.exe') -WorkingDirectory $dest -PassThru `
+            -RedirectStandardOutput (Join-Path $dest 'stdout.txt') -RedirectStandardError (Join-Path $dest 'stderr.txt')
+          Start-Sleep -Seconds 20
+          Add-Type -AssemblyName System.Windows.Forms,System.Drawing
+          $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $bitmap = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
+          $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+          $graphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+          $shot = 'D:\gui\gui-smoke.png'
+          $bitmap.Save($shot, [System.Drawing.Imaging.ImageFormat]::Png)
+          $graphics.Dispose(); $bitmap.Dispose()
+          Write-Host "screenshot bytes=$((Get-Item $shot).Length) pid=$($proc.Id)"
+          Get-Content (Join-Path $dest 'stdout.txt') -ErrorAction SilentlyContinue | Write-Host
+          Write-Host '--- webview logs ---'
+          Get-ChildItem $dest -Recurse -Include '*.log','*debug*.log' -ErrorAction SilentlyContinue |
+            Select-Object -First 20 FullName, Length | Format-Table | Out-String | Write-Host
+          $debug = Get-ChildItem $dest -Recurse -Filter '*.log' -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match 'debug|chrome|webview' } | Select-Object -First 1
+          if ($debug) { Get-Content $debug.FullName -Tail 80 | Write-Host }
+          if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+          Copy-Item D:\gui\gui-smoke.png "$env:GITHUB_WORKSPACE\gui-smoke.png" -Force
+          Copy-Item (Join-Path $dest 'stdout.txt') "$env:GITHUB_WORKSPACE\stdout.txt" -Force -ErrorAction SilentlyContinue
+          Copy-Item (Join-Path $dest 'stderr.txt') "$env:GITHUB_WORKSPACE\stderr.txt" -Force -ErrorAction SilentlyContinue
+          exit 0
+
+      - name: Upload screenshot and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: MC_L4-gui-smoke-logs
+          path: |
+            gui-smoke.png
+            stdout.txt
+            stderr.txt
+          if-no-files-found: warn
+          retention-days: 14

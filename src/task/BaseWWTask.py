@@ -25,6 +25,9 @@ f_white_color = {
 }
 processed_feature = False
 WIDE_MODE_UI_SCALE = 0.75
+# 编队界面的判据。team_close 是可交互按钮, 鼠标悬停时会放大变形, 匹配分数掉到 0.62;
+# team_start_challenge 在同一帧不随悬停变化, 且下一步本来就要点它。
+TEAM_SCREEN_FEATURES = ('team_start_challenge', 'team_close')
 
 
 class BaseWWTask(BaseTask):
@@ -372,17 +375,16 @@ class BaseWWTask(BaseTask):
         return 0
 
     def in_realm(self):
-        return not bool(getattr(self, 'treat_as_not_in_realm', False)) and self.find_one('illusive_realm_exit',
-                                                                                         threshold=0.7,
-                                                                                         frame_processor=convert_bw) and self.in_team() and not self.find_one(
-            'world_earth_icon', threshold=0.55,
-            frame_processor=convert_bw)
+        # in_team() returns a tuple. A failed check is (False, ...), which is still truthy.
+        return (not bool(getattr(self, 'treat_as_not_in_realm', False))
+                and self.find_one('illusive_realm_exit', threshold=0.7, frame_processor=convert_bw)
+                and self.in_team()[0]
+                and not self.find_one('world_earth_icon', threshold=0.55, frame_processor=convert_bw))
 
     def in_world(self):
-        return self.find_one('world_earth_icon', threshold=0.55,
-                             frame_processor=convert_bw) and self.in_team() and not self.find_one('illusive_realm_exit',
-                                                                                                  threshold=0.7,
-                                                                                                  frame_processor=convert_bw)
+        return (self.find_one('world_earth_icon', threshold=0.55, frame_processor=convert_bw)
+                and self.in_team()[0]
+                and not self.find_one('illusive_realm_exit', threshold=0.7, frame_processor=convert_bw))
 
     def in_illusive_realm(self):
         return self.find_one('new_realm_4') and self.in_realm() and self.find_one('illusive_realm_menu', threshold=0.6)
@@ -716,6 +718,7 @@ class BaseWWTask(BaseTask):
 
     def ensure_main(self, esc=True, time_out=30):
         self.info_set('current task', f'wait main esc={esc}')
+        self._realm_exit_attempted = False
         if not self.logged_in:
             time_out = 600
         if not self.wait_until(lambda: self.is_main(esc=esc), time_out=time_out, raise_if_not_found=False):
@@ -727,7 +730,13 @@ class BaseWWTask(BaseTask):
         if self.in_team_and_world():
             self.logged_in = True
             if self.in_realm():
-                self.esc_world_confirm()
+                # Same controls and load budget as make_sure_in_world. The menu
+                # timeout on ensure_main does not shorten this exit wait.
+                if not getattr(self, '_realm_exit_attempted', False):
+                    self._realm_exit_attempted = True
+                    self._attempt_realm_exit()
+                    self._wait_until_realm_left()
+                return not self.in_realm()
             return True
         if self.wait_login():
             return False
@@ -796,6 +805,51 @@ class BaseWWTask(BaseTask):
     def in_team_and_world(self):
         return self.in_team()[
             0]  # and self.find_one(f'gray_book_button', threshold=0.7, canny_lower=50, canny_higher=150)
+
+    def _attempt_realm_exit(self):
+        """Press Esc and confirm with either supported exit control. No load wait."""
+        self.send_key('esc', after_sleep=1)
+        clicked = self.wait_click_feature(
+            'gray_confirm_exit_button', relative_x=-1, raise_if_not_found=False,
+            time_out=3, click_after_delay=0.5, threshold=0.7, after_sleep=1)
+        if clicked:
+            return
+        # esc_world_confirm's dialog. Missing both controls is an error.
+        self.click_dialog_right_button()
+
+    def _realm_exit_load_timeout(self):
+        """How long the screen may take to leave a domain after confirm.
+
+        DomainTask.make_sure_in_world waited ``teleport_timeout`` (100).
+        ensure_main reached the same situation through esc_world_confirm, which
+        waited 120. A caller's menu timeout (30 or 180) is not this budget.
+        """
+        if getattr(self, 'teleport_timeout', None):
+            return self.teleport_timeout
+        return 120
+
+    def _wait_until_realm_left(self):
+        # in_team() stays true inside a domain, so waiting on that alone returns immediately.
+        self.wait_until(
+            lambda: self.in_team()[0] and not self.in_realm(),
+            time_out=self._realm_exit_load_timeout(),
+            raise_if_not_found=True,
+        )
+
+    def make_sure_in_world(self, time_out=None):
+        """Leave a challenge domain, or reach the main screen.
+
+        ``time_out`` is only the open-world/menu wait passed to ensure_main.
+        Leaving a domain uses the exit/load budget from the original helper.
+        """
+        if self.in_realm():
+            self._attempt_realm_exit()
+            self._wait_until_realm_left()
+            return
+        if time_out is None:
+            self.ensure_main()
+        else:
+            self.ensure_main(time_out=time_out)
 
     def get_angle_between(self, my_angle, angle):
         if my_angle > angle:
@@ -1215,9 +1269,9 @@ class BaseWWTask(BaseTask):
             target = max(btns, key=lambda box: box.y)
         self.draw_boxes(boxes=target, color="red")
         self.click(target, after_sleep=1)
-        feature = self.wait_feature(['fast_travel_custom', 'gray_teleport', 'remove_custom', 'team_close'], time_out=10,
-                                    settle_time=0.5, raise_if_not_found=True)
-        return feature.name == 'team_close'
+        feature = self.wait_feature(['fast_travel_custom', 'gray_teleport', 'remove_custom', *TEAM_SCREEN_FEATURES],
+                                    time_out=10, settle_time=0.5, raise_if_not_found=True)
+        return feature.name in TEAM_SCREEN_FEATURES
 
     def change_time_to_night(self):
         logger.info('change time to night')

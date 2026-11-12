@@ -45,7 +45,7 @@ class TacetTask(WWOneTimeTask, BaseCombatTask):
 
     def run(self):
         super().run()
-        self.ensure_main(time_out=180)
+        self.make_sure_in_world(time_out=180)
         self.wait_in_team_and_world(esc=True)
         self.farm_tacet()
 

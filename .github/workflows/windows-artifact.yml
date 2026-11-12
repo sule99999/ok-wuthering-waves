@@ -1,0 +1,236 @@
+# Unsigned Global installer for this branch. No tag, GitHub Release,
+# code signing, upstream sync, or third-party distribution. A manual button
+# is not declared: GitHub only shows one after this file is on the default branch.
+name: Windows unsigned artifact
+
+on:
+  push:
+    branches:
+      - cursor/mc-l4-window-and-exe-name-5999
+    paths:
+      - .github/workflows/windows-artifact.yml
+      - .github/actions/package-launcher/**
+      - .github/scripts/**
+      - pyappify.yml
+      - config.py
+      - main.py
+      - main_debug.py
+      - main_web.py
+      - src/**
+      - requirements.txt
+      - pyproject.toml
+      - icons/**
+      - assets/**
+      - i18n/**
+      - deploy.txt
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-unsigned-artifact-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    name: Build unsigned Windows installers
+    runs-on: windows-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: python .github/scripts/install_dependencies.py
+
+      - name: Vendor ok and pyappify from this checkout
+        shell: pwsh
+        run: |
+          $tag = "pr.$($env:GITHUB_SHA.Substring(0, 12))"
+          python -m ok.update.inline_ok_requirements --tag $tag
+          if (-not (Test-Path 'ok\__init__.py')) { throw 'ok was not vendored' }
+          if (-not (Test-Path 'pyappify\__init__.py')) { throw 'pyappify was not vendored' }
+          $config = Get-Content -Raw config.py
+          if ($config -notmatch "gui_title.: .MC_L4") { throw 'config.py lost the MC_L4 title' }
+
+      - name: Keep only the Global profile for this artifact
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Global inherits these values from the China profile when both are
+          # present. A one-profile file must repeat them or pip and pythonw change.
+          @'
+          name: "MC_L4"
+          uac: true
+          icon: "icons/icon.png"
+          website: "http://ok-script.com/ok-ww"
+          keep_releases: 30
+
+          profiles:
+            - name: "Global"
+              git_url: "https://github.com/sule99999/ok-wuthering-waves.git"
+              admin: true
+              main_script: "main.py"
+              requires_python: "3.12"
+              requirements: "requirements.txt"
+              use_pythonw: true
+              pip_args: "--no-deps"
+              show_add_defender: true
+          '@ | Set-Content -Encoding utf8 pyappify.yml
+
+      - name: Package from a short directory
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # PyAppify clones this repo under pyappify_dist while setting up a profile.
+          # ok_templates filenames are about 180 characters. The default
+          # D:\a\ok-wuthering-waves\... checkout makes those paths longer than
+          # the legacy Windows limit, and the launcher's git library stops.
+          New-Item -ItemType Directory -Force D:\b | Out-Null
+          # Robocopy uses 0-7 for success. PowerShell must not treat those as failures.
+          $PSNativeCommandUseErrorActionPreference = $false
+          & robocopy $env:GITHUB_WORKSPACE D:\b /E /XD .git /NFL /NDL /NJH /NJS /nc /ns /np
+          if ($LASTEXITCODE -ge 8) { throw "robocopy failed with exit $LASTEXITCODE" }
+          exit 0
+
+      - name: Package portable Global archive
+        uses: ./.github/actions/package-launcher
+        env:
+          PACKAGE_ROOT: D:/b
+        with:
+          version: v1.2.6
+          build_exe_only: 'false'
+          build_setup: 'false'
+          add_version_name: 'false'
+          package_zip: 'true'
+          package_zip_format: '7z'
+
+      - name: Check packaged files
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dist = 'D:\b\pyappify_dist'
+          Get-ChildItem $dist | ForEach-Object { '{0} {1}' -f $_.Length, $_.Name }
+          if (Get-ChildItem $dist -Filter '*setup*.exe' -ErrorAction SilentlyContinue) {
+            throw 'A setup executable was built; portable releases do not include one'
+          }
+          if (Get-ChildItem $dist -Filter '*-China-*') {
+            throw 'A China archive was built; this artifact is Global only'
+          }
+          $global = Get-Item (Join-Path $dist 'MC_L4-win32-Global.7z')
+          if ($global.Length -lt 80MB) {
+            throw "Global archive is $($global.Length) bytes, too small to contain Python and OpenVINO"
+          }
+          if ($global.Length -gt 550MB) {
+            throw "Global archive is $($global.Length) bytes, larger than the upstream-sized budget"
+          }
+          $extract = Join-Path $env:RUNNER_TEMP 'launcher-zip'
+          Expand-Archive (Join-Path $dist 'MC_L4-win32.zip') $extract
+          $exe = Get-ChildItem $extract -Recurse -Filter 'MC_L4.exe' | Select-Object -First 1
+          if (-not $exe) { throw 'MC_L4.exe was not inside MC_L4-win32.zip' }
+          $exe.VersionInfo | Format-List ProductName, FileDescription, OriginalFilename, FileName | Out-String | Write-Host
+          $sevenZip = 'C:\Program Files\7-Zip\7z.exe'
+          if (-not (Test-Path $sevenZip)) { throw '7-Zip is required to verify the archive contents' }
+          $listing = & $sevenZip l $global.FullName
+          $listing | Select-String -Pattern 'MC_L4.exe|python\\python.exe|python\\pythonw.exe|working\\config.py|working\\ok\\|working\\assets\\' |
+            ForEach-Object { $_.Line }
+          if ($listing | Select-String -SimpleMatch -Pattern 'ok_templates' -Quiet) {
+            throw 'Global installer still contains ok_templates'
+          }
+          if ($listing | Select-String -SimpleMatch -Pattern 'working\tests\' -Quiet) {
+            throw 'Global installer still contains tests'
+          }
+          if (-not ($listing | Select-String -SimpleMatch -Pattern 'python.exe' -Quiet)) {
+            throw 'Global installer does not contain the bundled Python runtime'
+          }
+          $hasGitHead = ($listing | Select-String -SimpleMatch -Pattern '.git\HEAD' -Quiet) -or
+            ($listing | Select-String -SimpleMatch -Pattern '.git/HEAD' -Quiet)
+          if (-not $hasGitHead) {
+            throw 'Global installer does not contain an openable git repository'
+          }
+
+      - name: Upload unsigned portable archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: MC_L4-win32-Global
+          path: D:\b\pyappify_dist\MC_L4-win32-Global.7z
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload unsigned launcher
+        uses: actions/upload-artifact@v4
+        with:
+          name: MC_L4-win32
+          path: D:\b\pyappify_dist\MC_L4-win32.zip
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Install, open Start App, and launch the bundled Python GUI
+        shell: pwsh
+        run: |
+          & ./.github/scripts/windows_launcher_smoke.ps1 `
+            -Dest 'D:\mcl4smoke' `
+            -Archive 'D:\b\pyappify_dist\MC_L4-win32-Global.7z' `
+            -LauncherZip 'D:\b\pyappify_dist\MC_L4-win32.zip'
+
+      - name: Collect GUI smoke evidence
+        if: always()
+        shell: pwsh
+        run: |
+          $dest = Join-Path $env:GITHUB_WORKSPACE 'smoke-evidence'
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          $roots = @('D:\mcl4smoke', (Join-Path $env:RUNNER_TEMP 'mcl4-portable'))
+          foreach ($root in $roots) {
+            if (-not (Test-Path $root)) { continue }
+            Get-ChildItem $root -Recurse -Include 'stdout-*.txt','stderr-*.txt','*.log','*.png' -ErrorAction SilentlyContinue |
+              Where-Object { $_.Length -gt 0 -and $_.FullName -notmatch '\\EBWebView\\' } |
+              Select-Object -First 24 |
+              Copy-Item -Destination $dest -Force
+          }
+          Get-ChildItem $dest | Select-Object Name, Length | Format-Table -AutoSize | Out-String | Write-Host
+
+      - name: Upload GUI smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: MC_L4-gui-smoke
+          path: smoke-evidence/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Smoke-test the launcher without starting the game
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $extract = Join-Path $env:RUNNER_TEMP 'launcher-smoke'
+          New-Item -ItemType Directory -Force $extract | Out-Null
+          Expand-Archive 'D:\b\pyappify_dist\MC_L4-win32.zip' $extract -Force
+          $exe = Get-ChildItem $extract -Recurse -Filter 'MC_L4.exe' | Select-Object -First 1
+          $response = Join-Path $env:RUNNER_TEMP 'version-list.json'
+          $stdout = Join-Path $env:RUNNER_TEMP 'mc-l4-stdout.txt'
+          $stderr = Join-Path $env:RUNNER_TEMP 'mc-l4-stderr.txt'
+          $proc = Start-Process -FilePath $exe.FullName -ArgumentList @(
+            '--get-version-list', '--response-file', $response
+          ) -WorkingDirectory $exe.DirectoryName -PassThru -WindowStyle Hidden `
+            -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          if (-not $proc.WaitForExit(90000)) {
+            Stop-Process -Id $proc.Id -Force
+            throw 'MC_L4.exe did not exit within 90 seconds'
+          }
+          Write-Host "exit=$($proc.ExitCode)"
+          if (Test-Path $stdout) { Get-Content $stdout | Write-Host }
+          if (Test-Path $stderr) { Get-Content $stderr | Write-Host }
+          if (Test-Path $response) { Get-Content $response | Write-Host }
+          if ($proc.ExitCode -ne 0) { throw "MC_L4.exe --get-version-list exited $($proc.ExitCode)" }
