@@ -16,6 +16,9 @@ fi
 dest="${RUNNER_TEMP}/pyappify-action"
 rm -rf "$dest"
 git clone --depth 1 https://github.com/ok-oldking/pyappify-action.git "$dest"
+# Same action commit upstream uses for portable 7z releases without setup.exe.
+git -C "$dest" fetch --depth 1 origin 69bf7ae364e8c7f0606f34df86d432168a46f4bf
+git -C "$dest" checkout --detach 69bf7ae364e8c7f0606f34df86d432168a46f4bf
 "$python_bin" "${GITHUB_WORKSPACE}/.github/scripts/patch_pyappify_build_config.py" \
   build-config "${dest}/build-config.js"
 cp "${GITHUB_WORKSPACE}/.github/scripts/overlay_packaged_source.js" \

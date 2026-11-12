@@ -74,6 +74,7 @@ jobs:
           uac: true
           icon: "icons/icon.png"
           website: "http://ok-script.com/ok-ww"
+          keep_releases: 30
 
           profiles:
             - name: "Global"
@@ -102,41 +103,17 @@ jobs:
           if ($LASTEXITCODE -ge 8) { throw "robocopy failed with exit $LASTEXITCODE" }
           exit 0
 
-      - name: Install NSIS from the GitHub API
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          # The release CDN currently returns 504 for this zip. The asset API
-          # still serves the same bytes Tauri verifies (SHA1 EF7FF767...).
-          $dest = Join-Path $env:LOCALAPPDATA 'tauri\NSIS'
-          if (Test-Path (Join-Path $dest 'makensis.exe')) {
-            Write-Host "NSIS already present at $dest"
-            exit 0
-          }
-          $zip = Join-Path $env:RUNNER_TEMP 'nsis-3.11.zip'
-          $dll = Join-Path $env:RUNNER_TEMP 'nsis_tauri_utils.dll'
-          curl.exe -fL --retry 5 --retry-all-errors -H "Authorization: Bearer $env:GH_TOKEN" -H "Accept: application/octet-stream" -o $zip https://api.github.com/repos/tauri-apps/binary-releases/releases/assets/317051073
-          curl.exe -fL --retry 5 --retry-all-errors -H "Authorization: Bearer $env:GH_TOKEN" -H "Accept: application/octet-stream" -o $dll https://api.github.com/repos/tauri-apps/nsis-tauri-utils/releases/assets/345882097
-          $extract = Join-Path $env:RUNNER_TEMP 'nsis-extract'
-          Expand-Archive -LiteralPath $zip -DestinationPath $extract
-          New-Item -ItemType Directory -Force $dest | Out-Null
-          Copy-Item -Path (Join-Path $extract 'nsis-3.11\*') -Destination $dest -Recurse -Force
-          $dllDir = Join-Path $dest 'Plugins\x86-unicode\additional'
-          New-Item -ItemType Directory -Force $dllDir | Out-Null
-          Copy-Item -LiteralPath $dll -Destination (Join-Path $dllDir 'nsis_tauri_utils.dll') -Force
-          if (-not (Test-Path (Join-Path $dest 'makensis.exe'))) {
-            throw "makensis.exe was not extracted to $dest"
-          }
-
-      - name: Package installers
+      - name: Package portable Global archive
         uses: ./.github/actions/package-launcher
         env:
           PACKAGE_ROOT: D:/b
         with:
+          version: v1.2.6
           build_exe_only: 'false'
+          build_setup: 'false'
           add_version_name: 'false'
+          package_zip: 'true'
+          package_zip_format: '7z'
 
       - name: Check packaged files
         shell: pwsh
@@ -144,15 +121,18 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $dist = 'D:\b\pyappify_dist'
           Get-ChildItem $dist | ForEach-Object { '{0} {1}' -f $_.Length, $_.Name }
-          $global = Get-Item (Join-Path $dist 'MC_L4-win32-Global-setup.exe')
-          if (Get-ChildItem $dist -Filter '*-China-setup.exe') {
-            throw 'A China installer was built; this artifact is Global only'
+          if (Get-ChildItem $dist -Filter '*setup*.exe' -ErrorAction SilentlyContinue) {
+            throw 'A setup executable was built; portable releases do not include one'
           }
+          if (Get-ChildItem $dist -Filter '*-China-*') {
+            throw 'A China archive was built; this artifact is Global only'
+          }
+          $global = Get-Item (Join-Path $dist 'MC_L4-win32-Global.7z')
           if ($global.Length -lt 80MB) {
-            throw "Global installer is $($global.Length) bytes, too small to contain Python and OpenVINO"
+            throw "Global archive is $($global.Length) bytes, too small to contain Python and OpenVINO"
           }
           if ($global.Length -gt 550MB) {
-            throw "Global installer is $($global.Length) bytes, larger than the upstream-sized budget"
+            throw "Global archive is $($global.Length) bytes, larger than the upstream-sized budget"
           }
           $extract = Join-Path $env:RUNNER_TEMP 'launcher-zip'
           Expand-Archive (Join-Path $dist 'MC_L4-win32.zip') $extract
@@ -160,7 +140,7 @@ jobs:
           if (-not $exe) { throw 'MC_L4.exe was not inside MC_L4-win32.zip' }
           $exe.VersionInfo | Format-List ProductName, FileDescription, OriginalFilename, FileName | Out-String | Write-Host
           $sevenZip = 'C:\Program Files\7-Zip\7z.exe'
-          if (-not (Test-Path $sevenZip)) { throw '7-Zip is required to verify the installer contents' }
+          if (-not (Test-Path $sevenZip)) { throw '7-Zip is required to verify the archive contents' }
           $listing = & $sevenZip l $global.FullName
           $listing | Select-String -Pattern 'MC_L4.exe|python\\python.exe|python\\pythonw.exe|working\\config.py|working\\ok\\|working\\assets\\' |
             ForEach-Object { $_.Line }
@@ -183,7 +163,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: MC_L4-win32-Global
-          path: D:\b\pyappify_dist\MC_L4-win32-Global-setup.exe
+          path: D:\b\pyappify_dist\MC_L4-win32-Global.7z
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
@@ -193,7 +173,8 @@ jobs:
         run: |
           & ./.github/scripts/windows_launcher_smoke.ps1 `
             -Dest 'D:\mcl4smoke' `
-            -Installer 'D:\b\pyappify_dist\MC_L4-win32-Global-setup.exe'
+            -Archive 'D:\b\pyappify_dist\MC_L4-win32-Global.7z' `
+            -LauncherZip 'D:\b\pyappify_dist\MC_L4-win32.zip'
 
       - name: Collect GUI smoke evidence
         if: always()

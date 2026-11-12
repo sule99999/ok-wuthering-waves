@@ -22,6 +22,18 @@ inputs:
     description: Append the application version to installer file names.
     required: false
     default: "false"
+  build_setup:
+    description: Build NSIS setup executables. Portable releases leave this false.
+    required: false
+    default: "false"
+  package_zip:
+    description: Build a portable archive of the app data and launch command.
+    required: false
+    default: "true"
+  package_zip_format:
+    description: Portable archive format, 7z or zip.
+    required: false
+    default: "7z"
 
 outputs:
   dist-path:
@@ -48,5 +60,8 @@ runs:
         INPUT_USE_RELEASE: ${{ inputs.use_release }}
         INPUT_BUILD_EXE_ONLY: ${{ inputs.build_exe_only }}
         INPUT_ADD_VERSION_NAME: ${{ inputs.add_version_name }}
+        INPUT_BUILD_SETUP: ${{ inputs.build_setup }}
+        INPUT_PACKAGE_ZIP: ${{ inputs.package_zip }}
+        INPUT_PACKAGE_ZIP_FORMAT: ${{ inputs.package_zip_format }}
         GITHUB_TOKEN: ${{ github.token }}
       run: bash "$GITHUB_WORKSPACE/.github/scripts/run_pyappify_action.sh"

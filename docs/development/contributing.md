@@ -77,15 +77,15 @@ This launch uses `gui_title` from `config.py` (`MC_L4`). ok-script appends the v
 
 仓库里的正式发布入口是 `.github/workflows/build.yml`，只在推送 `v*` tag 时运行，运行环境是 `windows-latest` 和 Python 3.12。那个 workflow 会创建 GitHub Release，稳定版还会请求 SignPath。
 
-The release entry point is `.github/workflows/build.yml`. It runs only on a `v*` tag, on `windows-latest` with Python 3.12. That workflow creates a GitHub Release, and a stable tag also requests SignPath.
+The release entry point is `.github/workflows/build.yml`. It runs only on a `v*` tag, on `windows-latest` with Python 3.12. That workflow can create a GitHub Release. Signing is off, and the package step does not build a setup executable.
 
 这个 PR 另有 `.github/workflows/windows-artifact.yml`。它在本分支相关文件被推送时，用同一套打包脚本打未签名的 Windows 安装包，并上传为 Actions artifact `MC_L4-windows-unsigned`。它不创建 tag、Release，不签名，也不上传 MirrorChyan。
 
 This pull request also has `.github/workflows/windows-artifact.yml`. A push of the relevant files on this branch builds unsigned Windows installers with the same packaging scripts and uploads the Actions artifact `MC_L4-windows-unsigned`. It does not create a tag or a Release, and it does not sign or upload to MirrorChyan.
 
-可用的 Global 安装包是 https://github.com/sule99999/ok-wuthering-waves/actions/runs/42554289961 ，源码 `49089aec93461989058382a09b28bc44b41cbf56`。下载：https://github.com/sule99999/ok-wuthering-waves/actions/runs/42554289961/artifacts/13647361734 。文件 `MC_L4-win32-Global-setup.exe`，235,223,190 字节。没有签名，没有 tag，也没有 Release。Windows CI 装好后，Start App 是绿色的。点击后随包的 `pythonw.exe` 打开标题为 `MC_L4 pr.49089aec9346 Global` 的任务窗口，游戏保持 Disconnected。把 `app.json` 换成带上游地址和 `v3.7.19` 的旧文件后再打开，用户文件还在，Start App 仍然可用，并且仍运行安装包里的代码。`1f2546c` 的包（artifact `13641106347`）Start App 是灰的，不要用。
+上一份经过窗口验证的安装包仍是 setup.exe：https://github.com/sule99999/ok-wuthering-waves/actions/runs/42554289961/artifacts/13647361734 （`49089ae`，235,223,190 字节）。上游 v3.7.20 改为只发 portable 7z、不再打 setup.exe，本分支已经跟着改。新的 Global 7z 要以 Windows CI 实际上传的 artifact 为准，在那之前不要把旧的 setup.exe 当成当前包。
 
-The usable Global installer is https://github.com/sule99999/ok-wuthering-waves/actions/runs/42554289961 from `49089aec93461989058382a09b28bc44b41cbf56`. Download: https://github.com/sule99999/ok-wuthering-waves/actions/runs/42554289961/artifacts/13647361734 . The file is `MC_L4-win32-Global-setup.exe`, 235,223,190 bytes. It is unsigned, and there is no tag or Release. After the Windows CI install, Start App is green. Clicking it opens the task window titled `MC_L4 pr.49089aec9346 Global` with the bundled `pythonw.exe`, while the game stays Disconnected. Replacing `app.json` with the old upstream URLs and `v3.7.19`, then launching again, keeps the user file, leaves Start App usable, and still runs the packaged code. The `1f2546c` package (artifact `13641106347`) leaves Start App grey. Do not use it.
+The last package whose window was verified is still the setup.exe at https://github.com/sule99999/ok-wuthering-waves/actions/runs/42554289961/artifacts/13647361734 (`49089ae`, 235,223,190 bytes). Upstream v3.7.20 ships portable 7z archives and no longer builds setup.exe, and this branch follows that. Use the Global 7z only after Windows CI uploads it. Until then, do not treat the older setup.exe as the current package.
 
 安装包里已经有 Python 3.12（`data\apps\MC_L4\python\python.exe` 和 `pythonw.exe`）以及 OpenVINO、OpenCV 等依赖。不需要另装 Python 或 Git 来编译。界面使用随包的 `pythonw.exe`，因为 Global 沿用了原来从 China profile 继承的 `use_pythonw`。启动器进程名是 `MC_L4.exe`。
 

@@ -2,7 +2,9 @@
 # and starts the bundled Python GUI. A grey Start App button is a failure.
 param(
     [Parameter(Mandatory = $true)][string]$Dest,
-    [Parameter(Mandatory = $true)][string]$Installer
+    [string]$Installer,
+    [string]$Archive,
+    [string]$LauncherZip
 )
 
 $ErrorActionPreference = 'Stop'
@@ -308,14 +310,36 @@ function Invoke-LauncherScenario([string]$Name, [string]$Kept, [string]$ConfigHa
     }
 }
 
-if (-not (Test-Path -LiteralPath $Installer)) {
-    throw "Installer is missing: $Installer"
+if ($Archive) {
+    if (-not (Test-Path -LiteralPath $Archive)) { throw "Archive is missing: $Archive" }
+    if (-not (Test-Path -LiteralPath $LauncherZip)) { throw "Launcher zip is missing: $LauncherZip" }
+    $sevenZip = 'C:\Program Files\7-Zip\7z.exe'
+    $extract = Join-Path $env:RUNNER_TEMP 'mcl4-portable'
+    if (Test-Path $extract) { cmd /c "rmdir /s /q $extract" }
+    & $sevenZip x $Archive "-o$extract" -y | Out-Host
+    if ($LASTEXITCODE -ne 0) { throw "7z extract failed: $LASTEXITCODE" }
+    $portableRoot = Join-Path $extract 'MC_L4'
+    if (-not (Test-Path (Join-Path $portableRoot 'MC_L4.cmd'))) {
+        throw 'Portable archive does not contain MC_L4.cmd'
+    }
+    $zipExtract = Join-Path $env:RUNNER_TEMP 'mcl4-launcher-zip'
+    if (Test-Path $zipExtract) { cmd /c "rmdir /s /q $zipExtract" }
+    Expand-Archive -LiteralPath $LauncherZip -DestinationPath $zipExtract -Force
+    $launcherExe = Get-ChildItem $zipExtract -Recurse -Filter 'MC_L4.exe' | Select-Object -First 1
+    if (-not $launcherExe) { throw 'Launcher zip does not contain MC_L4.exe' }
+    Copy-Item -LiteralPath $launcherExe.FullName -Destination (Join-Path $portableRoot 'MC_L4.exe') -Force
+    $Dest = $portableRoot
+    Write-Host "portable root $Dest"
+} else {
+    if (-not (Test-Path -LiteralPath $Installer)) {
+        throw "Installer is missing: $Installer"
+    }
+    if (Test-Path -LiteralPath $Dest) {
+        cmd /c "rmdir /s /q $Dest"
+    }
+    Write-Host "installing $Installer to $Dest"
+    cmd /c "`"$Installer`" /S /D=$Dest"
 }
-if (Test-Path -LiteralPath $Dest) {
-    cmd /c "rmdir /s /q $Dest"
-}
-Write-Host "installing $Installer to $Dest"
-cmd /c "`"$Installer`" /S /D=$Dest"
 $installDeadline = (Get-Date).AddMinutes(5)
 $pythonExe = Join-Path $Dest 'data\apps\MC_L4\python\python.exe'
 $stable = 0

@@ -14,10 +14,10 @@ const path = require("path");
 const START_BUTTON = 'disabled={disableRowActions || !app.current_version}>{t("Start App")}';
 const START_BUTTON_FIXED = 'disabled={disableRowActions}>{t("Start App")}';
 const OLD_START = `        (async () => {
-            await invokeTauriCommandWrapper<App>("load_app", undefined, () => {},`;
+            await invokeTauriCommandWrapper<AppInfo>("load_app", undefined, () => {},`;
 const NEW_START = `        void (async () => {
             await Promise.all(unlistenPromises);
-            await invokeTauriCommandWrapper<App>("load_app", undefined, (loadedApp) => {
+            await invokeTauriCommandWrapper<AppInfo>("load_app", undefined, (loadedApp) => {
                 if (loadedApp) {
                     setApp(loadedApp);
                     updateStatus({loading: false});
@@ -25,14 +25,15 @@ const NEW_START = `        void (async () => {
             },`;
 
 const START_GUARDS = [
-    "const updateBlocksActions = app.update_state !== 'idle';",
-    "const disableRowActions = currentPage !== 'list' || status.messageLoading || isThisAppLoading || updateBlocksActions;",
+    "const disableRowActions = isBusy || isActionLoading || app.update_state !== 'idle';",
+    "isBusy={currentPage !== 'list' || !!status.messageLoading}",
     'disabled={disableRowActions}>{t("Stop App")}',
     'disabled={disableRowActions}>{t("Install")}',
     'disabled={disableRowActions}>{t("Start App")}',
 ];
 
-function assertStartRemainsGuarded(text) {
+function assertStartRemainsGuarded(cardText, appText) {
+    const text = `${cardText}\n${appText}`;
     for (const snippet of START_GUARDS) {
         if (!text.includes(snippet)) {
             throw new Error(
@@ -72,21 +73,27 @@ function patchLauncherStartup(buildDir) {
         writePatched(file, text.replace(OLD_START, NEW_START), newline);
     }
 
-    const buttonText = fs.readFileSync(file, "utf8").replace(/\r\n/g, "\n");
-    if (buttonText.includes(START_BUTTON)) {
-        writePatched(file, buttonText.replace(START_BUTTON, START_BUTTON_FIXED), newline);
-    } else if (!buttonText.includes(START_BUTTON_FIXED)) {
-        throw new Error("App.tsx no longer disables Start App when current_version is empty");
+    const cardPath = path.join(buildDir, "src", "AppCard.tsx");
+    const cardOriginal = fs.readFileSync(cardPath, "utf8");
+    const cardNewline = cardOriginal.includes("\r\n") ? "\r\n" : "\n";
+    let cardText = cardOriginal.replace(/\r\n/g, "\n");
+    if (cardText.includes(START_BUTTON)) {
+        cardText = cardText.replace(START_BUTTON, START_BUTTON_FIXED);
+    } else if (!cardText.includes(START_BUTTON_FIXED)) {
+        throw new Error("AppCard.tsx no longer disables Start App when current_version is empty");
     }
-    assertStartRemainsGuarded(fs.readFileSync(file, "utf8").replace(/\r\n/g, "\n"));
     const unsafeCompare = "compareVersions(v, app.current_version!)";
     const safeCompare = "app.current_version ? compareVersions(v, app.current_version) : 0";
-    const compared = fs.readFileSync(file, "utf8").replace(/\r\n/g, "\n");
-    if (compared.includes(unsafeCompare)) {
-        writePatched(file, compared.replaceAll(unsafeCompare, safeCompare), newline);
-    } else if (!compared.includes(safeCompare)) {
+    if (cardText.includes(unsafeCompare)) {
+        cardText = cardText.replaceAll(unsafeCompare, safeCompare);
+    } else if (!cardText.includes(safeCompare)) {
         throw new Error("Version menu still assumes current_version is set");
     }
+    writePatched(cardPath, cardText, cardNewline);
+    assertStartRemainsGuarded(
+        cardText,
+        fs.readFileSync(file, "utf8").replace(/\r\n/g, "\n"),
+    );
 
     const htmlPath = path.join(buildDir, "index.html");
     const htmlOriginal = fs.readFileSync(htmlPath, "utf8");
@@ -130,39 +137,17 @@ function patchLauncherStartup(buildDir) {
 // the reviewed tree. Read its local tags and do not contact the remote.
 const FETCH_BLOCK = `                emit_info!(app_name, "Fetching updates for existing repository...");
                 let repo_path_for_task = repo_path.clone();
-                let url_for_task = url.clone();
                 let app_name_for_task = app_name.clone();
 
                 task::spawn_blocking(move || -> Result<()> {
                     let repo = open_repository(&repo_path_for_task)?;
-                    let mut remote = repo.find_remote("origin")?;
-                    let mut callbacks = RemoteCallbacks::new();
-                    configure_credentials(&mut callbacks, Some(&url_for_task));
-
-                    let app_name_for_progress = app_name_for_task.clone();
-                    callbacks.transfer_progress(create_transfer_progress_callback(
-                        app_name_for_progress,
-                        "Fetching objects".to_string(),
-                    ));
-
-                    let mut fetch_options = create_fetch_options(callbacks, None);
-                    fetch_options.prune(git2::FetchPrune::On);
-                    let refspecs = [
-                        "+refs/heads/*:refs/remotes/origin/*",
-                        "+refs/tags/*:refs/tags/*",
-                    ];
-                    let fetch_result = remote
-                        .fetch(&refspecs, Some(&mut fetch_options), None)
+                    sync_tags(&repo, &app_name_for_task, true, Some("Fetching objects"))
                         .with_context(|| {
                             format!(
                                 "Failed to fetch updates for {}",
                                 repo_path_for_task.display()
                             )
-                        });
-
-                    emit_update_info!(app_name_for_task, "");
-                    fetch_result?;
-                    prune_deleted_local_tags_from_remote(&repo, "origin", &app_name_for_task)?;
+                        })?;
                     emit_info!(app_name_for_task, "Fetch complete.");
                     Ok(())
                 })
@@ -181,35 +166,12 @@ const TAG_FETCH_BLOCK = `        emit_info!(
         );
 
         let repo = open_repository(&repo_path_for_task)?;
-
-        let mut remote = repo.find_remote("origin").with_context(|| {
+        sync_tags(&repo, &app_name_for_task, false, None).with_context(|| {
             format!(
-                "Failed to find remote 'origin' in repository {}",
+                "Failed to fetch tags for repository {}",
                 repo_path_for_task.display()
             )
-        })?;
-
-        let remote_url = remote.url().ok().map(String::from);
-
-        let mut remote_callbacks = RemoteCallbacks::new();
-        configure_credentials(&mut remote_callbacks, remote_url.as_deref());
-
-        let mut fetch_options = create_fetch_options(remote_callbacks, None);
-        fetch_options.prune(git2::FetchPrune::On);
-
-        remote
-            .fetch(
-                &["+refs/tags/*:refs/tags/*"],
-                Some(&mut fetch_options),
-                None,
-            )
-            .with_context(|| {
-                format!(
-                    "Failed to fetch tags for repository {}",
-                    repo_path_for_task.display()
-                )
-            })?;
-        prune_deleted_local_tags_from_remote(&repo, "origin", &app_name_for_task)?;`;
+        })?;`;
 const TAG_FETCH_SKIPPED = `        emit_info!(
             app_name_for_task,
             "Reading packaged tags without a startup fetch at {}",
@@ -235,7 +197,7 @@ function patchPackagedFetch(buildDir) {
         }
         text = text.replace(TAG_FETCH_BLOCK, TAG_FETCH_SKIPPED);
     }
-    if (text.includes("+refs/heads/*:refs/remotes/origin/*")) {
+    if (text.includes("Fetching updates for existing repository")) {
         throw new Error("Startup still fetches every branch of the packaged repository");
     }
     writePatched(file, text, newline);

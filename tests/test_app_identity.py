@@ -46,8 +46,8 @@ class AppIdentityTest(unittest.TestCase):
 
     def test_release_installer_glob_follows_the_packaged_name(self):
         workflow = (ROOT / ".github" / "workflows" / "build.yml").read_text(encoding="utf-8")
-        installer = f"pyappify_dist/{APP_NAME}-win32-China-setup-*.exe"
-        self.assertIn(installer, workflow)
+        self.assertIn("build_setup: false", workflow)
+        self.assertIn("package_zip_format: 7z", workflow)
         self.assertNotIn("pyappify_dist/ok-ww-win32-China-setup-", workflow)
 
     def test_repository_identity_and_license_stay_in_place(self):
@@ -69,7 +69,7 @@ class AppIdentityTest(unittest.TestCase):
         self.assertNotIn("ok-ww-win32.zip", config_source)
         self.assertIn('pip_args: "--no-deps"', pyappify_source)
         mirror = (ROOT / ".github" / "workflows" / "mirrorchyan_uploading.yml").read_text(encoding="utf-8")
-        self.assertIn('filename: "MC_L4-win32-China-setup-*.exe"', mirror)
+        self.assertIn('filename: "MC_L4-win32-China-*.7z"', mirror)
         self.assertNotIn("ok-ww-win32-China-setup-", mirror)
         self.assertIn("owner: ${{ github.repository_owner }}", mirror)
         self.assertIn("needs.synchronize.outputs.is_release == 'true'", workflow)
@@ -77,15 +77,16 @@ class AppIdentityTest(unittest.TestCase):
         self.assertIn("Upstream update-repository sync did not run", workflow)
         self.assertIn("github.repository == 'ok-oldking/ok-wuthering-waves'", workflow)
         self.assertIn("needs.synchronize.result == 'skipped'", workflow)
-        self.assertIn("SIGN_BUILD: ${{ needs.validate.outputs.is_release }}", workflow)
+        self.assertIn("SIGN_BUILD: 'false'", workflow)
         self.assertIn("uses: ./.github/actions/package-launcher", workflow)
         artifact = (ROOT / ".github" / "workflows" / "windows-artifact.yml").read_text(encoding="utf-8")
         self.assertIn("permissions:\n  contents: read", artifact)
         self.assertIn("python -m ok.update.inline_ok_requirements", artifact)
         self.assertIn("uses: ./.github/actions/package-launcher", artifact)
         self.assertIn("name: MC_L4-win32-Global", artifact)
-        self.assertIn("MC_L4-win32-Global-setup.exe", artifact)
+        self.assertIn("MC_L4-win32-Global.7z", artifact)
         self.assertNotIn("MC_L4-win32-China-setup.exe", artifact)
+        self.assertIn("build_setup: 'false'", artifact)
         self.assertIn("PACKAGE_ROOT: D:/b", artifact)
         self.assertNotIn("action-gh-release", artifact)
         self.assertNotIn("signpath", artifact.lower())
@@ -375,7 +376,7 @@ class AppIdentityTest(unittest.TestCase):
             self.assertNotEqual(0, failed.returncode)
             self.assertIn("ok/__init__.py", failed.stderr)
 
-    def _patch_launcher(self, source_text):
+    def _patch_launcher(self, source_text, card_text):
         node = shutil.which("node")
         if node is None:
             self.skipTest("node is not installed")
@@ -386,6 +387,8 @@ class AppIdentityTest(unittest.TestCase):
         source_dir.mkdir()
         source = source_dir / "App.tsx"
         source.write_text(source_text, encoding="utf-8")
+        card = source_dir / "AppCard.tsx"
+        card.write_text(card_text, encoding="utf-8")
         (build / "index.html").write_text('<div id="root"></div>\n', encoding="utf-8")
         tauri = build / "src-tauri"
         tauri.mkdir()
@@ -428,38 +431,39 @@ class AppIdentityTest(unittest.TestCase):
         completed, source, build, tauri = self._patch_launcher(
             "function App() {\n"
             "        (async () => {\n"
-            '            await invokeTauriCommandWrapper<App>("load_app", undefined, () => {},\n'
-            "const updateBlocksActions = app.update_state !== 'idle';\n"
-            "const disableRowActions = currentPage !== 'list' || status.messageLoading || isThisAppLoading || updateBlocksActions;\n"
+            '            await invokeTauriCommandWrapper<AppInfo>("load_app", undefined, () => {},\n'
+            "isBusy={currentPage !== 'list' || !!status.messageLoading}\n",
+            "const disableRowActions = isBusy || isActionLoading || app.update_state !== 'idle';\n"
             "{app.installed ? (\n"
             "    app.running ? (\n"
-            '        <Button onClick={() => handleStopApp(app.name)} disabled={disableRowActions}>{t("Stop App")}</Button>\n'
+            '        <Button disabled={disableRowActions}>{t("Stop App")}</Button>\n'
             "    ) : (\n"
-            '        <Button onClick={() => handleStartApp(app.name)} disabled={disableRowActions || !app.current_version}>{t("Start App")}</Button>\n'
-            "        {compareVersions(v, app.current_version!) > 0 ? 'up' : 'down'}\n"
+            '        <Button disabled={disableRowActions || !app.current_version}>{t("Start App")}</Button>\n'
             ") : (\n"
-            '    <Button onClick={() => handleInstallClick(app)} disabled={disableRowActions}>{t("Install")}</Button>\n'
+            '    <Button disabled={disableRowActions}>{t("Install")}</Button>\n'
             ")}\n"
+            "{compareVersions(v, app.current_version!) > 0 ? 'up' : 'down'}\n",
         )
         self.assertEqual(0, completed.returncode, completed.stderr)
         patched = source.read_text(encoding="utf-8")
+        card = (build / "src" / "AppCard.tsx").read_text(encoding="utf-8")
         self.assertIn("await Promise.all(unlistenPromises);", patched)
-        self.assertIn('disabled={disableRowActions}>{t("Start App")}', patched)
-        self.assertNotIn("!app.current_version", patched)
-        self.assertNotIn("app.current_version!", patched)
+        self.assertIn('disabled={disableRowActions}>{t("Start App")}', card)
+        self.assertNotIn("!app.current_version", card)
+        self.assertNotIn("app.current_version!", card)
         self.assertIn(
             "app.current_version ? compareVersions(v, app.current_version) : 0",
-            patched,
+            card,
         )
-        self.assertIn("const updateBlocksActions = app.update_state !== 'idle';", patched)
         self.assertIn(
-            "const disableRowActions = currentPage !== 'list' || status.messageLoading || isThisAppLoading || updateBlocksActions;",
-            patched,
+            "const disableRowActions = isBusy || isActionLoading || app.update_state !== 'idle';",
+            card,
         )
-        self.assertLess(patched.index("app.installed ?"), patched.index("app.running ?"))
-        self.assertLess(patched.index("app.running ?"), patched.index('{t("Start App")}'))
-        self.assertIn('disabled={disableRowActions}>{t("Stop App")}', patched)
-        self.assertIn('disabled={disableRowActions}>{t("Install")}', patched)
+        self.assertIn("isBusy={currentPage !== 'list' || !!status.messageLoading}", patched)
+        self.assertLess(card.index("app.installed ?"), card.index("app.running ?"))
+        self.assertLess(card.index("app.running ?"), card.index('{t("Start App")}'))
+        self.assertIn('disabled={disableRowActions}>{t("Stop App")}', card)
+        self.assertIn('disabled={disableRowActions}>{t("Install")}', card)
         self.assertIn('getElementById("boot")', patched)
         self.assertIn('id="boot"', (build / "index.html").read_text(encoding="utf-8"))
         self.assertIn('"visible": true', (tauri / "tauri.conf.json").read_text(encoding="utf-8"))
@@ -473,7 +477,7 @@ class AppIdentityTest(unittest.TestCase):
         completed, _source, _build, _tauri = self._patch_launcher(
             "function App() {\n"
             "        (async () => {\n"
-            '            await invokeTauriCommandWrapper<App>("load_app", undefined, () => {},\n'
+            '            await invokeTauriCommandWrapper<AppInfo>("load_app", undefined, () => {},\n',
             "{app.installed ? (\n"
             "    app.running ? (\n"
             '        <Button disabled={disableRowActions}>{t("Stop App")}</Button>\n'
@@ -482,6 +486,7 @@ class AppIdentityTest(unittest.TestCase):
             ") : (\n"
             '    <Button disabled={disableRowActions}>{t("Install")}</Button>\n'
             ")}\n"
+            "{compareVersions(v, app.current_version!) > 0 ? 'up' : 'down'}\n",
         )
         self.assertNotEqual(0, completed.returncode)
         self.assertIn("installed, loading, or update-state guard", completed.stderr)
@@ -490,9 +495,9 @@ class AppIdentityTest(unittest.TestCase):
         completed, _source, _build, _tauri = self._patch_launcher(
             "function App() {\n"
             "        (async () => {\n"
-            '            await invokeTauriCommandWrapper<App>("load_app", undefined, () => {},\n'
-            "const updateBlocksActions = app.update_state !== 'idle';\n"
-            "const disableRowActions = currentPage !== 'list' || status.messageLoading || isThisAppLoading || updateBlocksActions;\n"
+            '            await invokeTauriCommandWrapper<AppInfo>("load_app", undefined, () => {},\n'
+            "isBusy={currentPage !== 'list' || !!status.messageLoading}\n",
+            "const disableRowActions = isBusy || isActionLoading || app.update_state !== 'idle';\n"
             "{app.installed ? (\n"
             "    app.running ? (\n"
             '        <Button disabled={disableRowActions}>{t("Stop App")}</Button>\n'
@@ -501,6 +506,7 @@ class AppIdentityTest(unittest.TestCase):
             ") : (\n"
             '    <Button disabled={disableRowActions}>{t("Install")}</Button>\n'
             ")}\n"
+            "{compareVersions(v, app.current_version!) > 0 ? 'up' : 'down'}\n",
         )
         self.assertNotEqual(0, completed.returncode)
         self.assertIn("no longer disables Start App", completed.stderr)
